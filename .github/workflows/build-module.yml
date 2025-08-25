@@ -1,0 +1,78 @@
+name: Build Magisk Module
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      include_singbox:
+        description: 'Include sing-box binary in zip (true/false)'
+        required: false
+        default: 'false'
+      singbox_tag:
+        description: 'Optional sing-box release tag to include (e.g. v1.12.3)'
+        required: false
+        default: ''
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup zip
+        run: sudo apt-get update && sudo apt-get install -y zip
+
+      - name: Make build.sh executable
+        run: chmod +x build.sh || true
+
+      - name: Optionally download sing-box release (for module inclusion)
+        if: ${{ github.event.inputs.include_singbox == 'true' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SINGBOX_TAG: ${{ github.event.inputs.singbox_tag }}
+        run: |
+          # use update-singbox.sh logic but on runner: attempt to download linux-arm64 variant for packaging
+          python3 - <<'PY'
+          import os,sys,subprocess,json,urllib.request
+          api="https://api.github.com/repos/SagerNet/sing-box/releases"
+          tag=os.environ.get("SINGBOX_TAG","")
+          url=api+"/latest" if not tag else f"{api}/tags/{tag}"
+          req=urllib.request.Request(url, headers={"Accept":"application/vnd.github.v3+json","User-Agent":"build-action"})
+          data=json.loads(urllib.request.urlopen(req).read().decode())
+          assets=data.get("assets",[])
+          pick=None
+          for a in assets:
+            name=a.get("name","").lower()
+            if "linux" in name and ("aarch64" in name or "arm64" in name):
+              pick=a.get("browser_download_url"); break
+          if not pick:
+            for a in assets:
+              if "sing-box" in a.get("name","").lower():
+                pick=a.get("browser_download_url"); break
+          if not pick:
+            print("No asset found to include",file=sys.stderr); sys.exit(0)
+          print("Selected:",pick)
+          urllib.request.urlretrieve(pick,"sing-box-asset.tar.gz")
+          PY
+          mkdir -p data/tmp && tar -xzf sing-box-asset.tar.gz -C data/tmp || true
+          # try find binary and move to module dir
+          BPATH=$(find data/tmp -type f -iname 'sing-box' | head -n1 || true)
+          if [ -n "$BPATH" ]; then
+            echo "Found sing-box at $BPATH, copying into module dir"
+            cp "$BPATH" ./sing-box || true
+            chmod +x ./sing-box || true
+          else
+            echo "No sing-box binary found in archive; continue"
+          fi
+
+      - name: Build module zip
+        run: |
+          ./build.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: transparent-singbox-zip
+          path: transparent-singbox.zip
