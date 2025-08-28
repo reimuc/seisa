@@ -10,7 +10,7 @@ fi
 
 OUTNAME="${MODULE_ID}.zip"
 OUTPATH="$(pwd)/${OUTNAME}"
-REQUIRED_SCRIPTS=(common.sh customize.sh service.sh start.rules.sh update-singbox.sh)
+REQUIRED_SCRIPTS=(common.sh customize.sh service.sh start.rules.sh update-*.sh)
 EXCLUDES=(".git/*" ".idea/*" "build.sh" "*.zip" "__MACOSX" ".DS_Store")
 
 die() { echo "ERROR: $*" >&2; exit 1; }
