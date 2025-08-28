@@ -1,66 +1,85 @@
 #!/system/bin/sh
 #
-# monitor.sh - 简单守护 sing-box 进程
-# - 由 service.sh 在后台启动（nohup monitor.sh &）
-# - 功能：检测 sing-box 是否存活，若退出则尝试重新启动（有限次数），并记录日志
+# ==============================================================================
+# monitor.sh - 代理核心进程监控和自动重启脚本
+# ==============================================================================
 #
+# ## 功能:
+# - 定期检查代理核心进程是否仍在运行。
+# - 如果进程意外退出, 则尝试自动重启它。
+# - 实现了一个重启频率限制机制, 以避免在持续失败的情况下造成系统资源浪费。
+#
+# ==============================================================================
+
 set -e
 
-MODDIR=${MAGISK_MODULE_DIR:-/data/adb/modules/transparent-singbox}
-PERSIST=${PERSIST_DIR:-/data/adb/transparent-singbox}
-BIN="$MODDIR/sing-box"
-SERVICE_SH="$MODDIR/service.sh"
-PIDFILE="$PERSIST/singbox.pid"
-LOG="$PERSIST/transparent-singbox.log"
+# --- 初始化与变量定义 ---
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
 
-# 参数：最大重启次数，重启窗口（秒）
-MAX_RESTARTS=6
-WINDOW=300    # 5 minutes
+# --- 可配置变量 ---
 
-log() {
-  echo "[$(date +'%F %T')] $*" >> "$LOG"
-}
+# 在指定时间窗口内允许的最大重启次数
+MAX_RESTARTS=${MAX_RESTARTS:-6}
+# 时间窗口大小（秒）
+WINDOW=${WINDOW:-300} # 5 分钟
 
-# track restart timestamps
-RESTARTS_FILE="$PERSIST/.restart_timestamps"
+# 用于记录重启时间戳的文件
+RESTARTS_FILE="$PERSIST_DIR/.restart_timestamps"
+# 确保该文件存在
 touch "$RESTARTS_FILE" 2>/dev/null || true
 
+log "[monitor.sh]: 监控脚本已启动"
+
+if [ ! -x "$SERVICE" ]; then
+  log "[monitor.sh]: 服务脚本 $(basename "$SERVICE") 未找到或不可执行, 无法监控"
+  exit 0
+fi
+
+# 主监控循环
 monitor_loop() {
   while true; do
+    # 每 5 秒检查一次
     sleep 5
-    # is pid alive?
+    # 检查 PID 文件是否存在
     if [ -f "$PIDFILE" ]; then
+      # 读取 PID
       PID=$(cat "$PIDFILE" 2>/dev/null || true)
+      # 如果 PID 存在且进程正在运行 (kill -0), 则跳过本次循环
       if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-        # alive
         continue
       fi
     fi
 
-    # not running -> attempt restart with rate limiting
+    # --- 如果代码执行到这里, 说明代理核心进程已停止运行 ---
+    log "[monitor.sh]: 检测到代理核心已停止"
+
+    # --- 重启频率限制逻辑 ---
     now=$(date +%s)
-    # remove old timestamps
+    # 使用 awk 清理时间戳文件, 只保留最近 $WINDOW 秒内的记录
     awk -v now="$now" -v win="$WINDOW" '$1 >= now-win {print $1}' "$RESTARTS_FILE" 2>/dev/null > "${RESTARTS_FILE}.tmp" || true
     mv "${RESTARTS_FILE}.tmp" "$RESTARTS_FILE" 2>/dev/null || true
+    # 计算当前窗口内的重启次数
     count=$(wc -l < "$RESTARTS_FILE" 2>/dev/null || echo 0)
 
+    # 如果重启次数超过上限
     if [ "$count" -ge "$MAX_RESTARTS" ]; then
-      log "monitor: reached max restart count ($count) in $WINDOW s; not restarting to avoid loop"
-      # sleep longer and continue
+      log "[monitor.sh]: 在 $WINDOW 秒内达到最大重启次数 ($count), 将休眠 60 秒"
       sleep 60
-      continue
+      continue # 休眠后重新开始检查, 而不是立即重启
     fi
 
-    # attempt restart: call service.sh (which will reapply rules and start sing-box)
-    if [ -x "$SERVICE_SH" ]; then
-      log "monitor: sing-box not running; attempting restart via $SERVICE_SH"
-      sh "$SERVICE_SH" >> "$LOG" 2>&1 || log "monitor: failed to start via service.sh"
-    else
-      log "monitor: service.sh not found/executable; cannot restart"
+    # --- 执行重启操作 ---
+    if [ -x "$SERVICE" ]; then
+      log "[monitor.sh]: 代理核心未运行, 尝试通过 $(basename "$SERVICE") 重启"
+      # 调用 service.sh 脚本来启动服务
+      # 注意：这里不使用 'start' 参数, 因为 service.sh 的默认行为就是启动
+      sh "$SERVICE" >> "$LOGFILE" 2>&1 || log "[monitor.sh]: 通过 service.sh 启动失败"
     fi
 
-    # record restart timestamp
+    # 记录本次重启的时间戳
     echo "$(date +%s)" >> "$RESTARTS_FILE"
+    # 短暂休眠, 等待 sing-box 启动
     sleep 2
   done
 }

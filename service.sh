@@ -1,117 +1,49 @@
 #!/system/bin/sh
 #
-# Magisk late_start service: start/stop sing-box (tproxy mode) and rules
-# - Uses persistent directory /data/adb/transparent-singbox for user config, tokens, logs
-# - Seeds defaults from module on first run
-# - Honors settings.conf to optionally start monitor.sh and refresh-ipset.sh
+# ==============================================================================
+# late_start service - 开机后延迟启动的服务
+# ==============================================================================
 #
+# ## 特性:
+# - 启动/停止代理核心主程序以及相关的防火墙规则
+# - 持久化目录存放用户配置、日志等, 避免模块更新导致配置丢失
+# - 根据模块设置启停 monitor.sh (守护进程) 和 refresh-ipset.sh (规则集刷新)
+#
+# ==============================================================================
+
+# 当任何命令返回非零退出码时立即退出
 set -e
 
-MODDIR=${MAGISK_MODULE_DIR:-/data/adb/modules/transparent-singbox}
-PERSIST_DIR="/data/adb/transparent-singbox"
+# --- 初始化与变量定义 ---
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
 
-LOGFILE="$PERSIST_DIR/transparent-singbox.log"
-PIDFILE="$PERSIST_DIR/singbox.pid"
+log "[service.sh]: 接收参数: $1"
 
-MODULE_CONFIG="$MODDIR/config.json"
-MODULE_RULES="$MODDIR/start.rules.sh"
-MODULE_GHTOKEN="$MODDIR/github_token"
-UPDATE_SCRIPT="$MODDIR/update-singbox.sh"
-SINGBOX_BIN="$MODDIR/sing-box"
+# --- 函数定义 ---
 
-# defaults
-CONFIG="$MODULE_CONFIG"
-RULES_SCRIPT="$MODULE_RULES"
-
-# whether to attempt auto-download of sing-box if missing
-ENABLE_AUTO_UPDATE=1
-
-log() {
-  if [ ! -d "$PERSIST_DIR" ]; then
-    mkdir -p "$PERSIST_DIR" 2>/dev/null || true
-    chmod 755 "$PERSIST_DIR" 2>/dev/null || true
-  fi
-  echo "[$(date +'%F %T')] $*" >> "$LOGFILE"
-}
-
-seed_persisted_defaults() {
-  if [ ! -d "$PERSIST_DIR" ]; then
-    mkdir -p "$PERSIST_DIR" 2>/dev/null || {
-      log "ERROR: failed to create persist dir $PERSIST_DIR"
-      return 1
-    }
-    chmod 755 "$PERSIST_DIR" 2>/dev/null || true
-    log "Created persist dir $PERSIST_DIR"
-  fi
-
-  if [ ! -f "$PERSIST_DIR/config.json" ] && [ -f "$MODULE_CONFIG" ]; then
-    cp -p "$MODULE_CONFIG" "$PERSIST_DIR/config.json" 2>/dev/null || {
-      log "WARN: failed to copy default config.json to persist dir"
-    }
-    chmod 644 "$PERSIST_DIR/config.json" 2>/dev/null || true
-    log "Seeded default config.json to persist dir"
-  fi
-
-  if [ ! -f "$PERSIST_DIR/start.rules.sh" ] && [ -f "$MODULE_RULES" ]; then
-    cp -p "$MODULE_RULES" "$PERSIST_DIR/start.rules.sh" 2>/dev/null || {
-      log "WARN: failed to copy default start.rules.sh to persist dir"
-    }
-    chmod 755 "$PERSIST_DIR/start.rules.sh" 2>/dev/null || true
-    log "Seeded default start.rules.sh to persist dir"
-  fi
-
-  if [ -f "$MODULE_GHTOKEN" ] && [ ! -f "$PERSIST_DIR/github_token" ]; then
-    cp -p "$MODULE_GHTOKEN" "$PERSIST_DIR/github_token" 2>/dev/null || {
-      log "WARN: failed to copy github_token to persist dir"
-    }
-    chmod 600 "$PERSIST_DIR/github_token" 2>/dev/null || true
-    log "Seeded github_token to persist dir"
-  fi
-}
-
-# ensure sing-box binary exists (try update script if allowed)
-ensure_singbox() {
-  if [ ! -x "$SINGBOX_BIN" ]; then
-    if [ "$ENABLE_AUTO_UPDATE" -eq 1 ] && [ -x "$UPDATE_SCRIPT" ]; then
-      if [ -f "$PERSIST_DIR/github_token" ]; then
-        GHTOKEN=$(cat "$PERSIST_DIR/github_token" 2>/dev/null | tr -d '\r\n' || true)
-        if [ -n "$GHTOKEN" ]; then
-          export GITHUB_TOKEN="$GHTOKEN"
-          export GH_TOKEN="$GHTOKEN"
-          log "Exported GITHUB_TOKEN from persist dir for update"
-        fi
-      fi
-      log "sing-box missing: attempting download via update-singbox.sh"
-      sh "$UPDATE_SCRIPT" >> "$LOGFILE" 2>&1 || log "update-singbox.sh failed"
-    fi
-  fi
-
-  if [ ! -x "$SINGBOX_BIN" ]; then
-    log "ERROR: sing-box binary not found at $SINGBOX_BIN"
-    return 1
-  fi
-  return 0
-}
-
+# 函数: cleanup
+# 作用: 停止核心进程, 并清理所有相关的防火墙规则这是模块停止或重启前的必要步骤
 cleanup() {
+  log "开始清理..."
+  # 1. 停止核心进程
   if [ -f "$PIDFILE" ]; then
     PID=$(cat "$PIDFILE" 2>/dev/null || true)
     if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
-      log "Stopping sing-box (pid $PID)"
+      log "正在停止核心进程 $PID..."
       kill "$PID" 2>/dev/null || true
-      sleep 1
+      sleep 1 # 等待进程完全退出
     fi
     rm -f "$PIDFILE" 2>/dev/null || true
   fi
 
-  if [ -x "$PERSIST_DIR/start.rules.sh" ]; then
-    log "Calling persisted start.rules.sh stop"
-    sh "$PERSIST_DIR/start.rules.sh" stop >> "$LOGFILE" 2>&1 || true
-  elif [ -x "$MODDIR/start.rules.sh" ]; then
-    log "Calling module start.rules.sh stop"
-    sh "$MODDIR/start.rules.sh" stop >> "$LOGFILE" 2>&1 || true
+  # 2. 清理防火墙规则 (优先使用模块目录中的规则脚本, 最后是通用清理规则)
+  if [ -x "$START_RULES" ]; then
+    log "正在清理防火墙规则..."
+    # 调用规则脚本清理, 并将日志追加到主日志文件
+    sh "$START_RULES" stop >> "$LOGFILE" 2>&1 || log "- 规则脚本调用失败"
   else
-    log "No start.rules.sh found; attempting generic cleanup"
+    log "规则脚本在未找到, 尝试通用规则清理..."
     iptables -t mangle -D PREROUTING -j SINGBOX 2>/dev/null || true
     iptables -t mangle -F SINGBOX 2>/dev/null || true
     iptables -t mangle -X SINGBOX 2>/dev/null || true
@@ -124,150 +56,178 @@ cleanup() {
     ip -6 route del local ::/0 dev lo table 100 2>/dev/null || true
   fi
 
-  # stop monitors if running
+  # 3. 停止所有相关的辅助脚本 (如 monitor.sh)
   if command -v pgrep >/dev/null 2>&1; then
+    log "正在终止辅助脚本..."
     for p in monitor.sh refresh-ipset.sh; do
-      for pid in $(pgrep -f "$p" 2>/dev/null || true); do
+      pgrep -f "$p" | while read -r pid; do
+        log "- 残留进程 $pid"
         kill "$pid" 2>/dev/null || true
+        log "- 已终止 $p"
       done
     done
   fi
+  log "清理完成"
 }
 
-start_singbox() {
-  if [ ! -f "$CONFIG" ]; then
-    log "ERROR: config.json not found at $CONFIG"
-    return 1
+# 函数: ensure_bin
+# 作用: 确保核心程序存在且可执行如果文件不存在, 且 ENABLE_AUTO_UPDATE=1, 则尝试调用更新脚本来自动下载
+ensure_bin() {
+  en=$(read_setting "ENABLE_AUTO_UPDATE")
+
+  if [ -x "$UPDATE_BIN" ]; then
+
+    if [ ! -x "$BIN_PATH" ]; then
+      log "代理核心不存在, 尝试自动下载..."
+      # 执行更新脚本, 并将日志追加到主日志文件
+      sh "$UPDATE_BIN" >> "$LOGFILE" 2>&1 || log "自动更新执行失败"
+    fi
+
+    if [ -x "$BIN_PATH" ] && [ "$en" -eq 1 ]; then
+      log "已启用自动更新, 尝试自动更新..."
+      ver=$("$BIN_PATH" -v 2>/dev/null || "$BIN_PATH" --version 2>/dev/null || true)
+      log "当前版本: $ver"
+      # 执行更新脚本, 并将日志追加到主日志文件
+      sh "$UPDATE_BIN" >> "$LOGFILE" 2>&1 || log "自动更新执行失败"
+    fi
   fi
 
-  log "Starting sing-box with config $CONFIG"
-  nohup "$SINGBOX_BIN" run -c "$CONFIG" >> "$LOGFILE" 2>&1 &
-  echo $! > "$PIDFILE"
-  sleep 0.8
-  if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    log "sing-box started (pid $(cat "$PIDFILE"))"
-  else
-    log "ERROR: sing-box failed to start; check $LOGFILE"
-  fi
-}
-
-apply_rules() {
-  if [ -x "$PERSIST_DIR/start.rules.sh" ]; then
-    log "Using persisted rules script: $PERSIST_DIR/start.rules.sh"
-    sh "$PERSIST_DIR/start.rules.sh" start >> "$LOGFILE" 2>&1 || {
-      log "Persisted start.rules.sh failed; falling back to module start.rules.sh"
-      if [ -x "$MODDIR/start.rules.sh" ]; then
-        sh "$MODDIR/start.rules.sh" start >> "$LOGFILE" 2>&1 || {
-          log "Module start.rules.sh failed"
-          return 1
-        }
-      else
-        log "No module start.rules.sh available"
-        return 1
-      fi
-    }
-  elif [ -x "$MODDIR/start.rules.sh" ]; then
-    log "Using module rules script: $MODDIR/start.rules.sh"
-    sh "$MODDIR/start.rules.sh" start >> "$LOGFILE" 2>&1 || {
-      log "Module start.rules.sh failed"
-      return 1
-    }
-  else
-    log "No start.rules.sh found; aborting"
+  if [ ! -x "$BIN_PATH" ]; then
+    log "错误: 代理核心未找到, 请确认程序是否存在"
     return 1
   fi
   return 0
 }
 
-# Utility to read settings from persisted settings.conf
-read_setting() {
-  key="$1"
-  f="$PERSIST_DIR/settings.conf"
-  if [ ! -f "$f" ]; then
+# 函数: start_bin
+# 作用: 在后台启动代理核心进程
+start_bin() {
+  if [ ! -f "$CONFIG" ]; then
+    log "错误: 配置文件未找到: $CONFIG"
     return 1
   fi
-  grep -oP "(?<=^${key}=).*" "$f" 2>/dev/null | tr -d '\r\n'
+  log "正在启动核心进程..."
+  nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BINLOG" 2>&1 &
+  # 将进程号写入 PID 文件, 以便后续管理
+  echo $! > "$PIDFILE"
+  sleep 0.8 # 短暂等待, 以便检查进程是否成功启动
+  if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    log "代理核心启动成功 (PID $(cat "$PIDFILE"))"
+  else
+    log "错误: 核心进程启动失败, 请检查日志 $BINLOG"
+    return 1
+  fi
+  return 0
 }
 
+# 函数: apply_rules
+# 作用: 应用防火墙规则, 以便将流量转发给核心进程
+apply_rules() {
+  if [ -x "$START_RULES" ]; then
+    log "正在应用防火墙规则..."
+    sh "$START_RULES" start >> "$LOGFILE" 2>&1 || log "规则脚本调用失败"
+  else
+    log "错误: 规则脚本未找到, 请重新安装模块"
+    return 1
+  fi
+  # shellcheck disable=SC2181
+  if [ $? -ne 0 ]; then
+    log "错误: 防火墙规则应用失败"
+    return 1
+  fi
+  log "防火墙规则应用成功"
+  return 0
+}
+
+# 函数: start_monitor_if_needed
+# 作用: 根据模块配置, 决定是否启动守护进程
 start_monitor_if_needed() {
-  en=$(read_setting "ENABLE_MONITOR" || true)
+  # 从 settings.conf 读取 ENABLE_MONITOR 的值, 默认为 "1" (启用)
+  en=$(read_setting "ENABLE_MONITOR" "0")
   if [ "$en" = "1" ]; then
+    # 检查进程是否已在运行
     if ! pgrep -f monitor.sh >/dev/null 2>&1; then
-      if [ -x "$MODDIR/monitor.sh" ]; then
-        log "Starting monitor.sh"
-        nohup sh "$MODDIR/monitor.sh" >> "$LOGFILE" 2>&1 &
+      if [ -x "$MONITOR" ]; then
+        log "正在启动守护进程..."
+        bg_run sh "$MONITOR"
       else
-        log "monitor.sh not found in module dir; skipping monitor start"
+        log "警告: 守护进程脚本未找到, 跳过启动"
       fi
     else
-      log "monitor.sh already running"
+      log "守护进程 $(basename "$MONITOR") 已在运行"
     fi
   else
-    log "Monitor disabled by settings"
+    log "根据配置, 守护进程已被禁用"
   fi
 }
 
+# 函数: start_refresh_if_needed
+# 作用: 根据模块配置, 决定是否启动 IPSet 刷新脚本
 start_refresh_if_needed() {
-  en=$(read_setting "ENABLE_REFRESH" || true)
+  en=$(read_setting "ENABLE_REFRESH" "0")
   if [ "$en" = "1" ]; then
     if ! pgrep -f refresh-ipset.sh >/dev/null 2>&1; then
-      if [ -x "$MODDIR/refresh-ipset.sh" ]; then
-        log "Starting refresh-ipset.sh"
-        nohup sh "$MODDIR/refresh-ipset.sh" >> "$LOGFILE" 2>&1 &
+      if [ -x "$REFRESH" ]; then
+        log "正在启动 IPSet 刷新脚本..."
+        bg_run sh "$REFRESH"
       else
-        log "refresh-ipset.sh not found in module dir; skipping refresh start"
+        log "警告: 刷新脚本未找到, 跳过启动"
       fi
     else
-      log "refresh-ipset.sh already running"
+      log "IPSet 刷新脚本 $(basename "$REFRESH") 已在运行"
     fi
   else
-    log "Refresh disabled by settings"
+    log "根据配置, IPSet 刷新已被禁用"
   fi
 }
 
-# Main
+# --- 主逻辑 ---
+
+# 使用 case 语句处理传入的参数 (如 "start" 或 "stop")
 case "$1" in
   stop)
-    log "Received stop"
+    log "开始执行清理..."
     cleanup
+    rm -f "$FLAG" 2>/dev/null || true
+    update_desc "⛔"
+    log "服务已停止"
     exit 0
     ;;
   *)
-    log "Service start invoked"
+    log "[service.sh]: 服务启动..."
 
-    seed_persisted_defaults
+    # 1. 执行清理, 确保一个干净的启动环境
+    cleanup
 
-    # prefer persisted config and rules if exist
-    if [ -f "$PERSIST_DIR/config.json" ]; then
-      CONFIG="$PERSIST_DIR/config.json"
-    else
-      CONFIG="$MODULE_CONFIG"
-    fi
-
-    if [ -x "$PERSIST_DIR/start.rules.sh" ]; then
-      RULES_SCRIPT="$PERSIST_DIR/start.rules.sh"
-    else
-      RULES_SCRIPT="$MODULE_RULES"
-    fi
-
-    if ! ensure_singbox; then
-      log "sing-box not available; aborting start"
-      exit 0
-    fi
-
-    # apply iptables/ipset rules
-    if ! apply_rules; then
-      log "Failed to apply rules; aborting"
+    # 2. 确保核心程序存在
+    if ! ensure_bin; then
+      log "代理核心不可用, 启动中止"
       exit 1
     fi
 
-    # start sing-box
-    start_singbox
+    # 3. 应用防火墙规则
+    if ! apply_rules; then
+      log "防火墙规则应用失败, 启动中止"
+      cleanup # 尝试清理失败的规则
+      exit 1
+    fi
 
-    # start optional background helpers based on settings
+    # 4. 启动核心主进程
+    if ! start_bin; then
+      log "代理核心启动失败, 启动中止"
+      cleanup # 清理规则和可能的残留进程
+      exit 1
+    fi
+
+    # 5. 启动可选的辅助脚本
     start_monitor_if_needed
     start_refresh_if_needed
 
+    # 6. 创建服务运行标识
+    touch "$FLAG" 2>/dev/null || true
+    update_desc "✅"
+
+    log "[service.sh]: 服务启动完成"
     ;;
 esac
 

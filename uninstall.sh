@@ -1,105 +1,76 @@
 #!/system/bin/sh
 #
-# uninstall.sh
-# 建议在模块被卸载时运行，用来优雅停止运行中的 sing-box 并清理 iptables/ip6tables/ip rule/ip route/ipset 等
-# 注意：Magisk 在卸载模块时并不总是会自动停止用户态进程或清理自定义防火墙规则，因此提供 uninstall.sh 做显式清理更稳妥。
+# ==============================================================================
+# uninstall.sh - 在模块被卸载时执行的脚本
+# ==============================================================================
 #
-# 用法：由 Magisk 在卸载时调用，或手动运行以完全移除规则与进程。
+# ## 功能:
+# - 优雅地停止正在运行的核心进程
+# - 清理所有相关的 iptables, ip6tables, ip rule, ip route, 和 ipset 规则
+# - 确保系统网络环境恢复到模块安装前的状态
+#
+# ==============================================================================
+
 set -e
 
-MODID="transparent-singbox"
-MODDIR="/data/adb/modules/${MODID}"
-LOGFILE="${MODDIR}/transparent-singbox.log"
-TMPLOG="/data/local/tmp/${MODID}-uninstall.log"
+# --- 初始化与变量定义 ---
+MODDIR=${0%/*}
+. "$MODDIR/common.sh"
 
-log() {
-  if [ -w "$LOGFILE" ]; then
-    echo "[$(date +'%F %T')] $*" >> "$LOGFILE"
-  else
-    echo "[$(date +'%F %T')] $*" >> "$TMPLOG"
-  fi
-}
+ui_print_safe "[uninstall.sh]: 开始执行..."
 
-log "uninstall.sh: invoked"
-
-# 1) Try to stop service via service.sh
-if [ -x "$MODDIR/service.sh" ]; then
-  log "Calling service.sh stop"
-  sh "$MODDIR/service.sh" stop >> "$LOGFILE" 2>&1 || {
-    log "service.sh stop returned non-zero"
-  }
-else
-  log "No service.sh found or not executable"
+# --- 步骤 1: 尝试通过 service.sh 优雅地停止服务 ---
+if [ -x "$SERVICE" ]; then
+  ui_print_safe "正在停止服务..."
+  # 在后台执行, 并将日志输出到主日志文件
+  sh "$SERVICE" stop >> "$LOGFILE" 2>&1 || ui_print_safe "- 脚本返回非零值, 可能存在服务未停止"
 fi
 
-# 2) Try start.rules.sh stop (extra cleanup)
-if [ -x "$MODDIR/start.rules.sh" ]; then
-  log "Calling start.rules.sh stop"
-  sh "$MODDIR/start.rules.sh" stop >> "$LOGFILE" 2>&1 || {
-    log "start.rules.sh stop returned non-zero"
-  }
-fi
-
-# 3) Ensure sing-box process is killed (pid file or process scan)
-if [ -f "$MODDIR/singbox.pid" ]; then
-  PID=$(cat "$MODDIR/singbox.pid" 2>/dev/null || true)
-  if [ -n "$PID" ]; then
-    if kill -0 "$PID" 2>/dev/null; then
-      log "Killing sing-box pid $PID"
-      kill "$PID" 2>/dev/null || true
-      sleep 1
-    fi
-  fi
-  rm -f "$MODDIR/singbox.pid" 2>/dev/null || true
-fi
-
-# fallback: try pkill for sing-box binaries inside module dir (best-effort)
-if command -v pgrep >/dev/null 2>&1; then
-  for pid in $(pgrep -f sing-box 2>/dev/null || true); do
-    exe=$(readlink -f /proc/"$pid"/exe 2>/dev/null || true)
-    case "$exe" in
-      "$MODDIR"/*|*"$MODID"*)
-        log "Killing sing-box (pid $pid, exe $exe)"
-        kill "$pid" 2>/dev/null || true
-        ;;
-      *)
-        ;;
-    esac
+# 通过进程名进行全面清理
+if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
+  ui_print_safe "正在查找并终止残留进程..."
+  first_char=${BIN_NAME%%"${BIN_NAME#?}"}
+  rest_chars=${BIN_NAME#?}
+  for pid in $(pgrep -f "[$first_char]$rest_chars.*$MODID" 2>/dev/null); do
+    exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
+    ui_print_safe "- 发现残留进程PID: $pid"
+    kill "$pid" >/dev/null 2>&1
+    ui_print_safe "- 已终止 $exe"
   done
 fi
 
-# 4) Explicit firewall cleanup (best-effort)
-log "Attempting firewall cleanup (iptables/ip6tables/ip/ip6/ipset)"
+# --- 步骤 2: 显式地进行防火墙清理 (最大努力) ---
+ui_print_safe "正在尝试最终防火墙清理..."
 
-# remove ip rule / ip route (ipv4)
+# 移除 ip rule 和 ip route (IPv4)
 ip rule del fwmark 0x1 lookup 100 2>/dev/null || true
 ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null || true
 
-# remove ip rule / ip route (ipv6)
+# 移除 ip rule 和 ip route (IPv6)
 ip -6 rule del fwmark 0x1 lookup 100 2>/dev/null || true
 ip -6 route del local ::/0 dev lo table 100 2>/dev/null || true
 
-# remove chains (iptables)
+# 移除 iptables 链
 if command -v iptables >/dev/null 2>&1; then
   iptables -t mangle -D PREROUTING -j SINGBOX 2>/dev/null || true
   iptables -t mangle -F SINGBOX 2>/dev/null || true
   iptables -t mangle -X SINGBOX 2>/dev/null || true
 fi
 
-# remove chains (ip6tables)
+# 移除 ip6tables 链
 if command -v ip6tables >/dev/null 2>&1; then
   ip6tables -t mangle -D PREROUTING -j SINGBOX6 2>/dev/null || true
   ip6tables -t mangle -F SINGBOX6 2>/dev/null || true
   ip6tables -t mangle -X SINGBOX6 2>/dev/null || true
 fi
 
-# ipset cleanup
+# 清理 ipset
 if command -v ipset >/dev/null 2>&1; then
   ipset destroy singbox_outbounds_v4 2>/dev/null || true
   ipset destroy singbox_outbounds_v6 2>/dev/null || true
 fi
 
-log "uninstall.sh: cleanup finished"
+ui_print_safe "[uninstall.sh]: 执行完毕"
 
-# Optionally leave module directory to Magisk to remove; do not try to rm -rf here (Magisk uninstaller will)
+# 模块目录将由 Magisk 自身负责移除, 脚本不应尝试删除它
 exit 0
