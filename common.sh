@@ -282,8 +282,4 @@ bg_run() {
   echo $!
 }
 
-ui_print_safe "模块最终路径: $MODDIR"
-ui_print_safe "模块临时路径: $MODPATH"
-ui_print_safe "持久化数据路径: $PERSIST_DIR"
-
 # END of common.sh

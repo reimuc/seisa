@@ -20,6 +20,9 @@ MODDIR=${MODDIR:-/data/adb/modules/$MODID} # 模块最终的安装路径
 . "$MODPATH/common.sh"
 
 ui_print_safe "[customize.sh]: 开始执行..."
+ui_print_safe "模块最终路径: $MODDIR"
+ui_print_safe "模块临时路径: $MODPATH"
+ui_print_safe "持久化数据路径: $PERSIST_DIR"
 
 # ---
 # 步骤 1: 尽力优雅地停止现有的模块实例
@@ -27,6 +30,13 @@ ui_print_safe "[customize.sh]: 开始执行..."
 # 覆盖文件之前, 确保旧的进程和服务已经完全停止，使用 "best-effort" (尽力而为) 的方式, 因为无法保证所有情况下都能完美停止
 if [ -d "$MODDIR" ]; then
   ui_print_safe "模块升级中: 尝试停止旧服务..."
+
+  # 备份旧的日志文件
+  if [ -f "$LOGFILE" ]; then
+    ui_print_safe "正在备份旧的日志文件..."
+    # 使用 mv -f 强制覆盖已存在的备份, 确保只保留上一次的日志
+    mv -f "$LOGFILE" "$LOGFILE.bak" 2>/dev/null
+  fi
 
   # 停止服务脚本
   if [ -x "$SERVICE" ]; then
