@@ -56,10 +56,10 @@ cleanup() {
   fi
 
   # 3. 停止所有相关的辅助脚本 (如 monitor.sh)
-  if command -v pgrep >/dev/null 2>&1; then
+  if command -v awk >/dev/null 2>&1; then
     log "正在终止辅助脚本..."
     for exe in monitor.sh refresh-ipset.sh; do
-      ps | awk -v exe="$exe" '$0 ~ exe {print $1}' | while read -r pid; do
+      ps | awk -v exe="$exe" '$0 ~ exe && !/awk/ {print $1}' | while read -r pid; do
         log "- 发现残留进程 $pid $exe, 正在终止"
         kill "$pid" 2>/dev/null || true
       done
@@ -99,9 +99,10 @@ ensure_bin() {
   # 如果启用了自动更新, 检查版本
   if [ "$en" -eq 1 ]; then
     log "已启用自动更新, 正在检查版本..."
-    
+
     # 1. 获取本地版本
-    current_ver=$("$BIN_PATH" version | awk -F '[v ]' '/version/{print $2}' || echo "0.0.0")
+    ver_str=$("$BIN_PATH" version 2>/dev/null | awk '/version/ {sub(/.*version /, ""); sub(/^v/, ""); print $1}')
+    current_ver=${ver_str:-"0.0.0"}
     log "当前版本: $current_ver"
 
     # 2. 获取远程最新版本标签
@@ -174,7 +175,7 @@ start_monitor_if_needed() {
 
   if [ "$en" = "1" ]; then
     # 检查进程是否已在运行
-    if ! ps | awk -v monitor="$monitor" '$0 ~ monitor {exit 1}'; then
+    if ! ps | awk -v monitor="$monitor" '$0 ~ monitor && !/awk/ {exit 1}'; then
       if [ -x "$MODDIR/$monitor" ]; then
         log "正在启动守护进程..."
         bg_run sh "$MODDIR/$monitor"
@@ -196,7 +197,7 @@ start_refresh_if_needed() {
   refresh="refresh-ipset.sh"
 
   if [ "$en" = "1" ]; then
-    if ! ps | awk -v refresh="$refresh" '$0 ~ refresh {exit 1}'; then
+    if ! ps | awk -v refresh="$refresh" '$0 ~ refresh && !/awk/ {exit 1}'; then
       if [ -x "$MODDIR/$refresh" ]; then
         log "正在启动 IPSet 刷新脚本..."
         bg_run sh "$MODDIR/$refresh"

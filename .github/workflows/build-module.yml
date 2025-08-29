@@ -137,16 +137,14 @@ jobs:
       - name: Package module
         id: package
         run: |
-          MODULE_ID=$(grep '^id=' module.prop | cut -d= -f2)
-          ZIP_NAME="${MODULE_ID}.zip"
-          
-          echo "Module ID: $MODULE_ID"
-          echo "Zip Name: $ZIP_NAME"
-          
-          # Exclude files from the zip
-          zip -r -X "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
-          
-          echo "package_path=$ZIP_NAME" >> $GITHUB_OUTPUT
+          # Create a directory to hold the module files
+          mkdir -p module_package
+
+          # Copy all files into the package directory, excluding unwanted files/dirs
+          rsync -a --exclude='.git' --exclude='.github' --exclude='*.zip' --exclude='module_package' ./ module_package/
+
+          # The upload-artifact action will zip this directory.
+          echo "package_path=module_package" >> $GITHUB_OUTPUT
 
       - name: Upload module artifact
         uses: actions/upload-artifact@v4
