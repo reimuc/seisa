@@ -1,78 +1,149 @@
 name: Build Magisk Module
 
 on:
-  push:
-    branches: [ main ]
   workflow_dispatch:
     inputs:
       include_singbox:
-        description: 'Include sing-box binary in zip (true/false)'
+        description: 'Include agent core binary in zip (true/false)'
         required: false
         default: 'false'
-      singbox_tag:
-        description: 'Optional sing-box release tag to include (e.g. v1.12.3)'
+      architecture:
+        description: "Target Android architecture"
+        type: choice
+        options:
+          - arm64-v8a
+          - armeabi-v7a
+          - x86
+          - x86_64
+        default: "arm64-v8a"
+      bin_name:
+        description: "The name of the binary file to look for in releases."
+        type: string
+        default: "sing-box"
+      bin_repo:
+        description: "The agent core repository (owner/repo)"
+        type: string
+        default: "SagerNet/sing-box"
+      release_tag:
+        description: "The agent core release tag (e.g., v1.9.0-beta.11). Leave empty for latest."
         required: false
-        default: ''
+        type: string
+
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup zip
-        run: sudo apt-get update && sudo apt-get install -y zip
-
-      - name: Make build.sh executable
-        run: chmod +x build.sh || true
-
-      - name: Optionally download sing-box release (for module inclusion)
-        if: ${{ github.event.inputs.include_singbox == 'true' }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SINGBOX_TAG: ${{ github.event.inputs.singbox_tag }}
+      - name: Download agent core binary
+        if: ${{ inputs.include_singbox == 'true' }}
+        id: download-binary
+        shell: bash
         run: |
-          # use update-singbox.sh logic but on runner: attempt to download linux-arm64 variant for packaging
-          python3 - <<'PY'
-          import os,sys,subprocess,json,urllib.request
-          api="https://api.github.com/repos/SagerNet/sing-box/releases"
-          tag=os.environ.get("SINGBOX_TAG","")
-          url=api+"/latest" if not tag else f"{api}/tags/{tag}"
-          req=urllib.request.Request(url, headers={"Accept":"application/vnd.github.v3+json","User-Agent":"build-action"})
-          data=json.loads(urllib.request.urlopen(req).read().decode())
-          assets=data.get("assets",[])
-          pick=None
-          for a in assets:
-            name=a.get("name","").lower()
-            if "linux" in name and ("aarch64" in name or "arm64" in name):
-              pick=a.get("browser_download_url"); break
-          if not pick:
-            for a in assets:
-              if "sing-box" in a.get("name","").lower():
-                pick=a.get("browser_download_url"); break
-          if not pick:
-            print("No asset found to include",file=sys.stderr); sys.exit(0)
-          print("Selected:",pick)
-          urllib.request.urlretrieve(pick,"sing-box-asset.tar.gz")
-          PY
-          mkdir -p data/tmp && tar -xzf sing-box-asset.tar.gz -C data/tmp || true
-          # try find binary and move to module dir
-          BPATH=$(find data/tmp -type f -iname 'sing-box' | head -n1 || true)
-          if [ -n "$BPATH" ]; then
-            echo "Found sing-box at $BPATH, copying into module dir"
-            cp "$BPATH" ./sing-box || true
-            chmod +x ./sing-box || true
+          set -e
+          
+          ARCH="${{ inputs.architecture }}"
+          REPO="${{ inputs.bin_repo }}"
+          TAG="${{ inputs.release_tag }}"
+          BIN_NAME="${{ inputs.bin_name }}"
+          
+          # Determine GitHub API URL
+          if [[ -z "$TAG" ]]; then
+            API_URL="https://api.github.com/repos/$REPO/releases/latest"
+            echo "Fetching latest release from $REPO"
           else
-            echo "No sing-box binary found in archive; continue"
+            API_URL="https://api.github.com/repos/$REPO/releases/tags/$TAG"
+            echo "Fetching release $TAG from $REPO"
           fi
+          
+          # Get release info
+          RELEASE_JSON=$(curl -sL -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$API_URL")
+          
+          # Define architecture patterns
+          declare -A patterns
+          patterns["arm64-v8a"]="android.*(arm64|aarch64)|linux.*(arm64|aarch64|armv8)"
+          patterns["armeabi-v7a"]="android.*(armv7|arm-v7)|linux.*(armv7|arm-v7)"
+          patterns["x86"]="android.*(x86)|linux.*(x86|i386)"
+          patterns["x86_64"]="android.*(x86_64|amd64)|linux.*(x86_64|amd64)"
+          
+          # Find asset URL
+          ASSET_URL=""
+          IFS='|' read -ra arch_patterns <<< "${patterns[$ARCH]}"
+          for pattern in "${arch_patterns[@]}"; do
+            ASSET_URL=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name | test(\"$pattern\"; \"i\")) | .browser_download_url" | head -n1)
+            if [[ -n "$ASSET_URL" ]]; then
+              echo "Found matching asset for pattern '$pattern': $ASSET_URL"
+              break
+            fi
+          done
+          
+          if [[ -z "$ASSET_URL" ]]; then
+            echo "No specific architecture match found, trying to find a generic binary."
+            ASSET_URL=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name | test(\"$BIN_NAME\"; \"i\")) | .browser_download_url" | head -n1)
+          fi
+          
+          if [[ -z "$ASSET_URL" ]]; then
+            echo "::error::Could not find a suitable binary for architecture $ARCH."
+            exit 1
+          fi
+          
+          # Download and extract
+          TMPDIR=$(mktemp -d)
+          FNAME="$TMPDIR/asset"
+          
+          echo "Downloading from $ASSET_URL..."
+          curl -L -o "$FNAME" "$ASSET_URL"
+          
+          echo "Downloaded file type:"
+          file "$FNAME"
+          
+          BPATH=""
+          if file "$FNAME" | grep -q -i "zip"; then
+            unzip -o "$FNAME" -d "$TMPDIR"
+            BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n1)
+          elif file "$FNAME" | grep -q -i "gzip"; then
+            tar -xzf "$FNAME" -C "$TMPDIR"
+            BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n1)
+          else
+            # Assume it's a raw binary
+            mv "$FNAME" "$TMPDIR/$BIN_NAME"
+            BPATH="$TMPDIR/$BIN_NAME"
+          fi
+          
+          if [[ -z "$BPATH" ]]; then
+            echo "::error::Could not find '$BIN_NAME' in the downloaded asset."
+            exit 1
+          fi
+          
+          echo "Binary found at: $BPATH"
+          mv "$BPATH" "./$BIN_NAME"
+          chmod +x "./$BIN_NAME"
+          
+          echo "Successfully placed binary at ./$BIN_NAME"
+          rm -rf "$TMPDIR"
 
-      - name: Build module zip
+      - name: Set script permissions
         run: |
-          ./build.sh
+          chmod 755 ./*.sh
 
-      - name: Upload artifact
+      - name: Package module
+        id: package
+        run: |
+          MODULE_ID=$(grep '^id=' module.prop | cut -d= -f2)
+          ZIP_NAME="${MODULE_ID}.zip"
+          
+          echo "Module ID: $MODULE_ID"
+          echo "Zip Name: $ZIP_NAME"
+          
+          # Exclude files from the zip
+          zip -r -X "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
+          
+          echo "package_path=$ZIP_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload module artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Seisa
-          path: "**/*.zip"
+          name: Seisa-Module-${{ github.run_number }}
+          path: ${{ steps.package.outputs.package_path }}

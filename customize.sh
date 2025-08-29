@@ -20,8 +20,8 @@ MODDIR=${MODDIR:-/data/adb/modules/$MODID} # 模块最终的安装路径
 . "$MODPATH/common.sh"
 
 ui_print_safe "[customize.sh]: 开始执行..."
-ui_print_safe "模块最终路径: $MODDIR"
-ui_print_safe "模块临时路径: $MODPATH"
+ui_print_safe "本模块最终路径: $MODDIR"
+ui_print_safe "本模块临时路径: $MODPATH"
 ui_print_safe "持久化数据路径: $PERSIST_DIR"
 
 # ---
@@ -51,9 +51,8 @@ if [ -d "$MODDIR" ]; then
     rest_chars=${BIN_NAME#?}
     for pid in $(pgrep -f "[$first_char]$rest_chars.*$MODID" 2>/dev/null); do
       exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
-      ui_print_safe "- 发现残留进程PID: $pid"
+      ui_print_safe "- 发现残留进程 $pid $exe, 正在终止"
       kill "$pid" >/dev/null 2>&1
-      ui_print_safe "- 已终止 $exe"
     done
   fi
 
@@ -86,55 +85,7 @@ for f in config.json settings.conf github_token; do
 done
 
 # ---
-# 步骤 4: 处理 /sdcard 上的预安装标记
-# ---
-# 可以在 /sdcard/$MODID/ 目录下创建特定文件, 来在安装时自动开启某些功能或预设配置
-SDCARD_MARK_DIR="/sdcard/$MODID"
-if [ -d "$SDCARD_MARK_DIR" ]; then
-  ui_print_safe "检测到 SDCARD 标记目录, 正在处理预设..."
-
-  # 如果存在 enable_monitor 文件, 则在设置中启用监控
-  if [ -f "$SDCARD_MARK_DIR/enable_monitor" ]; then
-    write_setting "ENABLE_MONITOR" "1"
-    ui_print_safe "- 已启用监控 (ENABLE_MONITOR=1)"
-  fi
-
-  # 如果存在 enable_auto_update 文件, 则在设置中启用自动更新
-  if [ -f "$SDCARD_MARK_DIR/enable_auto_update" ]; then
-    write_setting "ENABLE_AUTO_UPDATE" "1"
-    ui_print_safe "- 已启用自动更新 (ENABLE_AUTO_UPDATE=1)"
-  fi
-
-  # 如果存在 enable_refresh 文件, 则在设置中启用 IPSet 刷新
-  if [ -f "$SDCARD_MARK_DIR/enable_refresh" ]; then
-    write_setting "ENABLE_REFRESH" "1"
-    ui_print_safe "- 已启用 IPSet 刷新 (ENABLE_REFRESH=1)"
-  fi
-
-  # 如果存在 settings.conf 文件, 则从中导入尚未在主设置文件中定义的键值对
-  if [ -f "$SDCARD_MARK_DIR/settings.conf" ]; then
-    ui_print_safe "- 正在批量导入预设..."
-    while IFS= read -r line || [ -n "$line" ]; do
-      # 忽略注释和空行
-      case "$line" in
-        '#*'|'') continue ;;
-        *'=') ;; # 允许空值
-        *'=*')
-          key="${line%%=*}"
-          val="${line#*=}"
-          # 检查主设置文件中是否已存在该键, 如果不存在, 则写入
-          if ! read_setting "$key" >/dev/null; then
-            write_setting "$key" "$val"
-            ui_print_safe "- 已导入预设: ${key}=${val}"
-          fi
-          ;;
-      esac
-    done < "$SDCARD_MARK_DIR/settings.conf"
-  fi
-fi
-
-# ---
-# 步骤 5: 设置文件权限
+# 步骤 4: 设置文件权限
 # ---
 # 使用 set_perm* 命令来设置最终安装后的文件和目录的权限与 SELinux 上下文
 ui_print_safe "设置文件权限中..."
@@ -151,10 +102,10 @@ if [ -f "$BIN_PATH" ] && [ ! -x "$BIN_PATH" ]; then
 fi
 
 # 使用循环为所有 .sh 脚本设置可执行权限, 避免遗漏
-for SCRIPT in "$MODPATH"/*.sh; do
-  if [ -f "$SCRIPT" ]; then
-    set_perm_safe "$SCRIPT" 0 0 0755
-    ui_print_safe "- 已赋予 $(basename "$SCRIPT") 可执行权限"
+for script in "$MODPATH"/*.sh; do
+  if [ -f "$script" ]; then
+    set_perm_safe "$script" 0 0 0755
+    ui_print_safe "- 已赋予 $(basename "$script") 可执行权限"
   fi
 done
 

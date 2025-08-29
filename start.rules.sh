@@ -12,13 +12,10 @@
 #
 # ==============================================================================
 
-# 当任何命令返回非零退出码时立即退出
 set -e
 
 # --- 初始化与变量定义 ---
-
-# --- 初始化与变量定义 ---
-MODDIR=${0%/*}
+MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 log "[start.rules.sh]: 接收参数: $1"
@@ -29,15 +26,15 @@ resolve_ips_bin() { resolve_ips "$1"; }
 # 从 sing-box 配置文件中提取 FakeIP 网段
 # FakeIP 用于为无 IP 的域名分配一个虚构的 IP 地址，便于 DNS 管理
 extract_fakeip_ranges() {
-  FAIR4=""
-  FAIR6=""
+  fair4=""
+  fair6=""
   if [ -f "$CONFIG" ]; then
     # 使用 grep 和 -oP（Perl 兼容的正则表达式）提取 inet4_range 的值
-    FAIR4=$(grep -oP '"inet4_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
+    fair4=$(grep -oP '"inet4_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
     # 提取 inet6_range 的值
-    FAIR6=$(grep -oP '"inet6_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
+    fair6=$(grep -oP '"inet6_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
   fi
-  echo "$FAIR4" "$FAIR6"
+  echo "$fair4" "$fair6"
 }
 
 # 创建 ipset 集合
@@ -147,13 +144,13 @@ add_whitelists_and_rules() {
 
   # 将 FakeIP 网段加入白名单，避免 DNS 查询结果被代理
   set -- $(extract_fakeip_ranges)
-  FAKE4="$1"
-  FAKE6="$2"
-  if [ -n "$FAKE4" ]; then
-    iptables -t mangle -A SINGBOX -d "$FAKE4" -j RETURN
+  fake4="$1"
+  fake6="$2"
+  if [ -n "$fake4" ]; then
+    iptables -t mangle -A SINGBOX -d "$fake4" -j RETURN
   fi
-  if [ -n "$FAKE6" ]; then
-    ip6tables -t mangle -A SINGBOX6 -d "$FAKE6" -j RETURN 2>/dev/null || true
+  if [ -n "$fake6" ]; then
+    ip6tables -t mangle -A SINGBOX6 -d "$fake6" -j RETURN 2>/dev/null || true
   fi
 
   # 忽略发往代理端口自身的流量

@@ -11,11 +11,10 @@
 #
 # ==============================================================================
 
-# 当任何命令返回非零退出码时立即退出
 set -e
 
 # --- 初始化与变量定义 ---
-MODDIR=${0%/*}
+MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 # 读取用户选择
@@ -70,10 +69,9 @@ if echo "$go" | grep -qiE '^(y|yes)$'; then
   if [ -x "$SERVICE" ]; then
     # 先停止服务, 再启动, 确保配置完全重新加载
     sh "$SERVICE" >/dev/null 2>&1 || true
-    echo "服务已重启"
   else
-    echo "错误：服务脚本不存在或不可执行: $SERVICE"
+    echo "错误：服务脚本 $(basename "$SERVICE") 未找到或不可执行"
   fi
 fi
 
-echo "配置完成, 如果需要, 您可以随时手动编辑 $SETTING 文件"
+echo "配置完成, 如果需要, 您可以随时手动编辑 $SETTING"

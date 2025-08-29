@@ -11,30 +11,21 @@
 
 # --- 核心路径与模块标识符 ---
 
-# 确定工作目录:
+# --- 工作目录 ---
 MODDIR=${MODDIR:-${0%/*}}
 MODID=${MODID:-$(basename "$MODDIR")}
 
 # --- 数据持久化目录 ---
-
-# 定义一个持久化数据目录, 用于存放用户配置、日志等
 PERSIST_DIR=${PERSIST_DIR:-"/data/adb/$MODID"}
 
 # --- 文件与程序默认路径 ---
-
-# 定义模块使用的核心文件和程序的默认路径
 PROP=${PROP:-"$MODDIR/module.prop"}                        # 模块信息
-BIN_NAME=${BIN_NAME:-"sing-box"}                           # 主程序文件名
-BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 主程序完整路径
 SERVICE=${SERVICE:-"$MODDIR/service.sh"}                   # 主服务脚本路径
-UPDATE_BIN=${UPDATE_BIN:-"$MODDIR/update-bin.sh"}          # 主程序更新脚本路径
 START_RULES=${START_RULES:-"$MODDIR/start.rules.sh"}       # iptables 规则脚本路径
-MONITOR=${MONITOR:-"$MODDIR/monitor.sh"}                   # 守护进程脚本路径
-REFRESH=${REFRESH:-"$MODDIR/refresh-ipset.sh"}             # IPSet 刷新脚本路径
 FLAG=${FLAG:-"$MODDIR/service_enabled"}                    # 服务运行标识
-CONFIG=${CONFIG:-"$PERSIST_DIR/config.json"}               # 核心配置文件路径
 SETTING=${SETTING:-"$PERSIST_DIR/settings.conf"}           # 模块配置文件路径
-BINLOG=${BINLOG:-"$PERSIST_DIR/$BIN_NAME.log"}             # 主程序日志文件路径
+CONFIG=${CONFIG:-"$PERSIST_DIR/config.json"}               # 核心配置文件路径
+BINLOG=${BINLOG:-"$PERSIST_DIR/$BIN_NAME.log"}             # 核心日志文件路径
 LOGFILE=${LOGFILE:-"$PERSIST_DIR/$MODID.log"}              # 日志文件路径
 PIDFILE=${PIDFILE:-"$PERSIST_DIR/$MODID.pid"}              # 进程ID文件路径
 
@@ -281,5 +272,9 @@ bg_run() {
 
   echo $!
 }
+
+# 定义模块使用的核心文件和程序的默认路径
+BIN_NAME=$(read_setting "BIN_NAME" "sing-box")             # 代理核心文件名
+BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 代理核心完整路径
 
 # END of common.sh

@@ -14,7 +14,7 @@
 set -e
 
 # --- 初始化与变量定义 ---
-MODDIR=${0%/*}
+MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 # --- 可配置变量 ---
@@ -29,10 +29,10 @@ RESTARTS_FILE="$PERSIST_DIR/.restart_timestamps"
 # 确保该文件存在
 touch "$RESTARTS_FILE" 2>/dev/null || true
 
-log "[monitor.sh]: 监控脚本已启动"
+log "[monitor.sh]: 监控脚本启动中..."
 
 if [ ! -x "$SERVICE" ]; then
-  log "[monitor.sh]: 服务脚本 $(basename "$SERVICE") 未找到或不可执行, 无法监控"
+  log "[monitor.sh]: 服务脚本 $(basename "$SERVICE") 未找到或不可执行, 启动失败"
   exit 0
 fi
 
@@ -44,9 +44,9 @@ monitor_loop() {
     # 检查 PID 文件是否存在
     if [ -f "$PIDFILE" ]; then
       # 读取 PID
-      PID=$(cat "$PIDFILE" 2>/dev/null || true)
+      pid=$(cat "$PIDFILE" 2>/dev/null || true)
       # 如果 PID 存在且进程正在运行 (kill -0), 则跳过本次循环
-      if [ -n "$PID" ] && kill -0 "$PID" 2>/dev/null; then
+      if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
         continue
       fi
     fi
@@ -70,12 +70,10 @@ monitor_loop() {
     fi
 
     # --- 执行重启操作 ---
-    if [ -x "$SERVICE" ]; then
-      log "[monitor.sh]: 代理核心未运行, 尝试通过 $(basename "$SERVICE") 重启"
-      # 调用 service.sh 脚本来启动服务
-      # 注意：这里不使用 'start' 参数, 因为 service.sh 的默认行为就是启动
-      sh "$SERVICE" >> "$LOGFILE" 2>&1 || log "[monitor.sh]: 通过 service.sh 启动失败"
-    fi
+    log "[monitor.sh]: 代理核心未运行, 尝试通过 $(basename "$SERVICE") 重启"
+    # 调用 service.sh 脚本来启动服务
+    # 注意：这里不使用 'start' 参数, 因为 service.sh 的默认行为就是启动
+    sh "$SERVICE" >> "$LOGFILE" 2>&1 || log "[monitor.sh]: 脚本 $(basename "$SERVICE") 调用失败"
 
     # 记录本次重启的时间戳
     echo "$(date +%s)" >> "$RESTARTS_FILE"

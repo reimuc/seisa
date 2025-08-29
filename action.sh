@@ -9,11 +9,10 @@
 #
 # ==============================================================================
 
-# 当任何命令返回非零退出码时立即退出
 set -e
 
 # --- 初始化与变量定义 ---
-MODDIR=${0%/*}
+MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 ui_print_safe "[action.sh]: 切换服务中..."
@@ -23,15 +22,15 @@ if [ -x "$SERVICE" ]; then
   # 检查服务运行标识
   if [ -f "$FLAG" ]; then
       # 服务已运行，执行停止操作
-      ui_print_safe "[action.sh]: 服务已运行，执行停止操作..."
-      # 停止核心主程序
+      ui_print_safe "[action.sh]: 服务已运行，正在停止..."
+      # 停止服务
       sh "$SERVICE" stop >/dev/null 2>&1 || true
   else
       # 服务未运行，执行启动操作
-      ui_print_safe "[action.sh]: 服务未运行，执行启动操作..."
-      # 启动核心主程序
+      ui_print_safe "[action.sh]: 服务未运行，正在启动..."
+      # 启动服务
       sh "$SERVICE" >/dev/null 2>&1 || true
   fi
 else
-  ui_print_safe "[action.sh]: 服务脚本不存在或不可执行: $SERVICE"
+  ui_print_safe "[action.sh]: 服务脚本不存在或不可执行"
 fi

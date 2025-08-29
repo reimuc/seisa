@@ -14,7 +14,7 @@
 set -e
 
 # --- 初始化与变量定义 ---
-MODDIR=${0%/*}
+MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 ui_print_safe "[uninstall.sh]: 开始执行..."
@@ -33,9 +33,8 @@ if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
   rest_chars=${BIN_NAME#?}
   for pid in $(pgrep -f "[$first_char]$rest_chars.*$MODID" 2>/dev/null); do
     exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
-    ui_print_safe "- 发现残留进程PID: $pid"
+    ui_print_safe "- 发现残留进程 $pid $exe, 正在终止"
     kill "$pid" >/dev/null 2>&1
-    ui_print_safe "- 已终止 $exe"
   done
 fi
 
