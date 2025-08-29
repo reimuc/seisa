@@ -180,8 +180,8 @@ read_setting() {
   value=""
 
   if [ -f "$f" ]; then
-    # 使用 `grep` 匹配以 `key=` 开头的行, 然后用 `cut` 提取等号后的所有内容
-    value=$(grep "^$key=" "$f" | cut -d= -f2-)
+    # 使用 awk 安全地提取和清理值, 移除前导/尾随的空白字符和回车
+    value=$(awk -v key="$key" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2); gsub(/^[ \t\r]+|[ \t\r]+$/, "", value); print value; exit; }' "$f")
   fi
 
   if [ -n "$value" ]; then
@@ -250,7 +250,7 @@ resolve_ips() {
   fi
   # 4. ping: 作为最后的手段, 从 ping 的输出中提取 IP 地址
   if ping -c 1 -W 1 "$host" >/dev/null 2>&1; then
-    ping -c1 -W1 "$host" 2>/dev/null | sed -n '1p' | grep -oE '\([0-9.]+\)' | tr -d '()'
+    ping -c1 -W1 "$host" 2>/dev/null | sed -n 's/.*(\([0-9.]*\)).*/\1/p'
     return 0
   fi
   return 1
@@ -263,7 +263,7 @@ resolve_ips() {
 # @return 0 表示支持, 1 表示不支持
 kernel_supports_tproxy() {
   # 通过检查 `iptables` 的帮助文档中是否包含 "TPROXY" 关键字来判断
-  if iptables -t mangle -h 2>&1 | grep -iq tproxy; then
+  if iptables -t mangle -h 2>&1 | awk '{if(tolower($0) ~ /tproxy/) exit 0} ENDFILE{exit 1}'; then
     return 0
   fi
   return 1

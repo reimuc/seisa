@@ -101,12 +101,15 @@ jobs:
           
           echo "Downloaded file type:"
           file "$FNAME"
-          
+
           BPATH=""
-          if file "$FNAME" | grep -q -i "zip"; then
+          MIME_TYPE=$(file --mime-type -b "$FNAME")
+          echo "Detected MIME type: $MIME_TYPE"
+
+          if [[ "$MIME_TYPE" == "application/zip" ]]; then
             unzip -o "$FNAME" -d "$TMPDIR"
             BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n1)
-          elif file "$FNAME" | grep -q -i "gzip"; then
+          elif [[ "$MIME_TYPE" == "application/gzip" || "$MIME_TYPE" == "application/x-gzip" ]]; then
             tar -xzf "$FNAME" -C "$TMPDIR"
             BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n1)
           else
