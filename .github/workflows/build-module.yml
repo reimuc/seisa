@@ -5,7 +5,10 @@ on:
     inputs:
       include_singbox:
         description: 'Include agent core binary in zip (true/false)'
-        required: false
+        type: choice
+        options:
+          - 'true'
+          - 'false'
         default: 'false'
       architecture:
         description: "Target Android architecture"
