@@ -54,6 +54,13 @@ monitor_loop() {
     # --- 如果代码执行到这里, 说明代理核心进程已停止运行 ---
     log "[monitor.sh]: 检测到代理核心已停止"
 
+    # --- 检查 service.sh 是否正在运行 ---
+    if [ -f "$LOCK_FILE" ]; then
+      log "[monitor.sh]: 检测到服务正在启动中, 等待其完成..."
+      sleep 10 # 等待 10 秒后重新检查
+      continue
+    fi
+
     # --- 重启频率限制逻辑 ---
     now=$(date +%s)
     # 使用 awk 清理时间戳文件, 只保留最近 $WINDOW 秒内的记录

@@ -127,24 +127,55 @@ ensure_bin() {
 }
 
 # 函数: start_bin
-# 作用: 在后台启动代理核心进程
+# 作用: 在后台启动代理核心进程并等待初始化完成
 start_bin() {
   if [ ! -f "$CONFIG" ]; then
     log "错误: 配置文件未找到: $CONFIG"
     return 1
   fi
   log "正在启动核心进程..."
+  
+  # 清空旧的日志文件
+  : > "$BIN_LOG"
+
+  # 启动进程
   nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BIN_LOG" 2>&1 &
-  # 将进程号写入 PID 文件, 以便后续管理
+  # 将进程号写入 PID 文件
   echo $! > "$PIDFILE"
-  sleep 0.8 # 短暂等待, 以便检查进程是否成功启动
-  if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
-    log "代理核心启动成功 (PID $(cat "$PIDFILE"))"
-  else
-    log "错误: 核心进程启动失败, 请检查日志 $BIN_LOG"
-    return 1
-  fi
-  return 0
+
+  # 等待进程启动并检查初始化状态
+  max_wait=15  # 最大等待时间（秒）
+  wait_count=0
+  pid=$(cat "$PIDFILE")
+
+  while [ "$wait_count" -lt "$max_wait" ]; do
+    # 首先检查进程是否还在运行
+    if ! kill -0 "$pid" 2>/dev/null; then
+      log "错误: 核心进程已退出"
+      return 1
+    fi
+
+    # 检查日志中是否有成功初始化的标志
+    if grep -q "sing-box started" "$BIN_LOG" 2>/dev/null; then
+      log "代理核心启动成功 (PID $pid)"
+      return 0
+    fi
+
+    # 检查是否有明显的错误标志
+    if grep -q -i "error\|failed\|fatal" "$BIN_LOG" 2>/dev/null; then
+      log "错误: 核心进程初始化失败，发现错误信息"
+      kill "$pid" 2>/dev/null || true
+      return 1
+    fi
+
+    sleep 1
+    wait_count=$((wait_count + 1))
+  done
+
+  # 如果超时仍未见到成功标志，认为启动失败
+  log "错误: 核心进程初始化超时"
+  kill "$pid" 2>/dev/null || true
+  return 1
 }
 
 # 函数: apply_rules
@@ -226,6 +257,15 @@ case "$1" in
     ;;
   *)
     log "[service.sh]: 服务启动..."
+
+    # --- 锁机制: 防止多个实例同时运行 ---
+    if [ -f "$LOCK_FILE" ]; then
+      log "[service.sh]: 检测到另一个服务实例正在运行, 本次启动中止"
+      exit 1
+    fi
+    # 创建锁文件, 并设置 trap 以确保在脚本退出时自动删除
+    touch "$LOCK_FILE"
+    trap 'rm -f "$LOCK_FILE"; log "[service.sh]: 锁已释放"' EXIT HUP INT QUIT TERM
 
     # 1. 执行清理, 确保一个干净的启动环境
     cleanup

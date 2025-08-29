@@ -27,6 +27,7 @@ SETTING=${SETTING:-"$PERSIST_DIR/settings.conf"}           # 模块配置文件�
 CONFIG=${CONFIG:-"$PERSIST_DIR/config.json"}               # 核心配置文件路径
 LOGFILE=${LOGFILE:-"$PERSIST_DIR/$MODID.log"}              # 日志文件路径
 PIDFILE=${PIDFILE:-"$PERSIST_DIR/$MODID.pid"}              # 进程ID文件路径
+LOCK_FILE=${LOCK_FILE:-"$PERSIST_DIR/.service_lock"}       # 服务锁文件路径
 
 # --- 网络与 TProxy 默认参数 ---
 
