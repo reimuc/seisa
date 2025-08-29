@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       include_singbox:
-        description: 'Include agent core binary in zip (true/false)'
+        description: 'Include agent core binary in zip'
         type: choice
         options:
           - 'true'
@@ -66,14 +66,14 @@ jobs:
           
           # Define architecture patterns
           declare -A patterns
-          patterns["arm64-v8a"]="android.*(arm64|aarch64)|linux.*(arm64|aarch64|armv8)"
-          patterns["armeabi-v7a"]="android.*(armv7|arm-v7)|linux.*(armv7|arm-v7)"
-          patterns["x86"]="android.*(x86)|linux.*(x86|i386)"
-          patterns["x86_64"]="android.*(x86_64|amd64)|linux.*(x86_64|amd64)"
+          patterns["arm64-v8a"]="android.*(arm64|aarch64);linux.*(arm64|aarch64|armv8)"
+          patterns["armeabi-v7a"]="android.*(armv7|arm-v7);linux.*(armv7|arm-v7)"
+          patterns["x86"]="android.*(x86);linux.*(x86|i386)"
+          patterns["x86_64"]="android.*(x86_64|amd64);linux.*(x86_64|amd64)"
           
           # Find asset URL
           ASSET_URL=""
-          IFS='|' read -ra arch_patterns <<< "${patterns[$ARCH]}"
+          IFS=';' read -ra arch_patterns <<< "${patterns[$ARCH]}"
           for pattern in "${arch_patterns[@]}"; do
             ASSET_URL=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name | test(\"$pattern\"; \"i\")) | .browser_download_url" | head -n1)
             if [[ -n "$ASSET_URL" ]]; then

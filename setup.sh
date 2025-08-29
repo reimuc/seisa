@@ -65,13 +65,15 @@ echo
 printf "是否立即重启模块以应用更改? [y/N]: "
 read -r go
 # 使用 grep -i 进行不区分大小写的匹配
-if echo "$go" | grep -qiE '^(y|yes)$'; then
-  if [ -x "$SERVICE" ]; then
-    # 先停止服务, 再启动, 确保配置完全重新加载
-    sh "$SERVICE" >/dev/null 2>&1 || true
-  else
-    echo "错误：服务脚本 $(basename "$SERVICE") 未找到或不可执行"
-  fi
-fi
+case "$go" in
+  [yY] | [yY][eE][sS])
+    if [ -x "$SERVICE" ]; then
+      # 先停止服务, 再启动, 确保配置完全重新加载
+      sh "$SERVICE" >/dev/null 2>&1 || true
+    else
+      echo "错误：服务脚本 $(basename "$SERVICE") 未找到或不可执行"
+    fi
+    ;;
+esac
 
 echo "配置完成, 如果需要, 您可以随时手动编辑 $SETTING"

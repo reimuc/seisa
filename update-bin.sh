@@ -105,15 +105,14 @@ if ! retry_curl "$RELEASE_API" "$TMPDIR/release.json"; then
   rm -rf "$TMPDIR"
   exit 1
 fi
-RELEASE_JSON=$(cat "$TMPDIR/release.json")
-
 # --- 解析资源下载链接 ---
 log "正在解析适用于 $ARCHITECTURE 架构的下载链接..."
-ASSET_URL=$(echo "$RELEASE_JSON" | grep -oP '"browser_download_url":\s*"\K[^"]+' | grep -i "$ARCHITECTURE" | head -n 1)
+ALL_URLS=$(awk -F'"' '/"browser_download_url"/ {print $4}' "$TMPDIR/release.json")
+ASSET_URL=$(echo "$ALL_URLS" | awk -v arch="$ARCHITECTURE" 'tolower($0) ~ tolower(arch) { print; exit }')
 
 if [ -z "$ASSET_URL" ]; then
   log "未找到 $ARCHITECTURE 版本, 尝试查找通用 Linux 版本..."
-  ASSET_URL=$(echo "$RELEASE_JSON" | grep -oP '"browser_download_url":\s*"\K[^"]+' | grep -i "linux" | head -n 1)
+  ASSET_URL=$(echo "$ALL_URLS" | awk 'tolower($0) ~ /linux/ { print; exit }')
 fi
 
 if [ -z "$ASSET_URL" ]; then
@@ -160,7 +159,7 @@ log "已在临时目录中找到 $BIN_NAME: $BPATH"
 
 # --- 验证与安装 ---
 chmod 755 "$BPATH"
-VER=$("$BPATH" -v 2>/dev/null || "$BPATH" --version 2>/dev/null || true)
+VER=$("$BPATH" -v 2>/dev/null || "$BPATH" version 2>/dev/null || true)
 if [ -n "$VER" ]; then
   log "下载的 $BIN_NAME 版本信息: $VER"
 fi

@@ -25,7 +25,6 @@ START_RULES=${START_RULES:-"$MODDIR/start.rules.sh"}       # iptables 规则脚�
 FLAG=${FLAG:-"$MODDIR/service_enabled"}                    # 服务运行标识
 SETTING=${SETTING:-"$PERSIST_DIR/settings.conf"}           # 模块配置文件路径
 CONFIG=${CONFIG:-"$PERSIST_DIR/config.json"}               # 核心配置文件路径
-BINLOG=${BINLOG:-"$PERSIST_DIR/$BIN_NAME.log"}             # 核心日志文件路径
 LOGFILE=${LOGFILE:-"$PERSIST_DIR/$MODID.log"}              # 日志文件路径
 PIDFILE=${PIDFILE:-"$PERSIST_DIR/$MODID.pid"}              # 进程ID文件路径
 
@@ -172,15 +171,24 @@ set_perm_recursive_safe() {
 # 从配置文件中读取一个键 (key) 对应的值 (value)
 #
 # @param "$1" key 要读取的键
-# @return 成功时返回读取到的值, 文件不存在或键不存在时返回 1
+# @param "$2" default_val (可选) 键不存在时返回的默认值
+# @return 成功时返回读取到的值, 文件不存在或键不存在时返回默认值
 read_setting() {
   key="$1"
+  default_val="$2"
   f="$SETTING"
-  if [ ! -f "$f" ]; then
-    return 1
+  value=""
+
+  if [ -f "$f" ]; then
+    # 使用 `grep` 匹配以 `key=` 开头的行, 然后用 `cut` 提取等号后的所有内容
+    value=$(grep "^$key=" "$f" | cut -d= -f2-)
   fi
-  # 使用 `grep` 匹配以 `key=` 开头的行, 然后用 `cut` 提取等号后的所有内容
-  grep "^$key=" "$f" | cut -d= -f2-
+
+  if [ -n "$value" ]; then
+    echo "$value"
+  else
+    echo "$default_val"
+  fi
 }
 
 # 将配置项写入配置文件
@@ -189,17 +197,29 @@ read_setting() {
 write_setting() {
   key="$1"; v="$2"
   f="$SETTING"
-  # 如果配置文件不存在, 则创建它
+  tmp_f="$f.tmp.$$"
+
+  mkdir -p "$(dirname "$f")"
   if [ ! -f "$f" ]; then echo "# 模块配置文件" > "$f" || true; fi
-  # 使用 grep 检查配置键是否已存在
-  if grep -q "^${key}=" "$f" 2>/dev/null; then
-    # 如果存在, 则使用 sed 更新其值
-    sed -i "s/^${key}=.*/${key}=${v}/" "$f" 2>/dev/null || true
-  else
-    # 如果不存在, 则追加新行
-    echo "${key}=${v}" >> "$f" || true
-  fi
-  # 设置文件权限为 600, 确保只有所有者可读写
+
+  awk -v k="$key" -v v="$v" '
+    BEGIN { updated = 0 }
+    {
+      eq_pos = index($0, "=")
+      if (eq_pos > 0 && substr($0, 1, eq_pos - 1) == k) {
+        print k "=" v
+        updated = 1
+      } else {
+        print $0
+      }
+    }
+    END {
+      if (updated == 0) {
+        print k "=" v
+      }
+    }
+  ' "$f" > "$tmp_f" && mv "$tmp_f" "$f"
+
   chmod 600 "$f" 2>/dev/null || true
 }
 
@@ -276,5 +296,5 @@ bg_run() {
 # 定义模块使用的核心文件和程序的默认路径
 BIN_NAME=$(read_setting "BIN_NAME" "sing-box")             # 代理核心文件名
 BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 代理核心完整路径
-
+BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}           # 核心日志文件路径
 # END of common.sh

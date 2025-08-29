@@ -30,9 +30,8 @@ extract_fakeip_ranges() {
   fair6=""
   if [ -f "$CONFIG" ]; then
     # 使用 grep 和 -oP（Perl 兼容的正则表达式）提取 inet4_range 的值
-    fair4=$(grep -oP '"inet4_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
-    # 提取 inet6_range 的值
-    fair6=$(grep -oP '"inet6_range"\s*:\s*"\K[^"]+' "$CONFIG" || true)
+    fair4=$(awk -F'"' '/"inet4_range"/ {print $4}' "$CONFIG" || true)
+    fair6=$(awk -F'"' '/"inet6_range"/ {print $4}' "$CONFIG" || true)
   fi
   echo "$fair4" "$fair6"
 }
@@ -67,7 +66,7 @@ populate_outbound_ipsets() {
   # 解析配置文件中的出站服务器地址并添加到 ipset
   if [ -f "$CONFIG" ]; then
     # 提取所有 "server" 字段的值，去重
-    grep -oP '"server"\s*:\s*"\K[^"]+' "$CONFIG" | sort -u | while read -r host; do
+    awk -F'"' '/"server"/ {print $4}' "$CONFIG" | sort -u | while read -r host; do
       [ -z "$host" ] && continue
       # 如果是 IP 地址，直接添加
       if echo "$host" | grep -qE '^[0-9]+\.'; then

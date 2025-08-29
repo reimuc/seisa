@@ -59,7 +59,7 @@ cleanup() {
   if command -v pgrep >/dev/null 2>&1; then
     log "正在终止辅助脚本..."
     for exe in monitor.sh refresh-ipset.sh; do
-      pgrep -f "$exe" | while read -r pid; do
+      ps | awk -v exe="$exe" '$0 ~ exe {print $1}' | while read -r pid; do
         log "- 发现残留进程 $pid $exe, 正在终止"
         kill "$pid" 2>/dev/null || true
       done
@@ -101,12 +101,12 @@ ensure_bin() {
     log "已启用自动更新, 正在检查版本..."
     
     # 1. 获取本地版本
-    current_ver=$("$BIN_PATH" --version | grep -oP 'version \K[\d\.]+' || echo "0.0.0")
+    current_ver=$("$BIN_PATH" version | awk -F '[v ]' '/version/{print $2}' || echo "0.0.0")
     log "当前版本: $current_ver"
 
     # 2. 获取远程最新版本标签
     api_url="https://api.github.com/repos/${bin_repo}/releases/latest"
-    latest_tag=$(curl -sSL "$api_url" | grep -oP '"tag_name":\s*"v\K[^"]+' | head -n 1 || echo "0.0.0")
+    latest_tag=$(curl -sSL "$api_url" | awk -F '"' '/"tag_name":/ {print $4}' | sed 's/v//' | head -n 1 || echo "0.0.0")
     log "最新版本: $latest_tag"
 
     # 3. 比较版本 (简单的字符串比较)
@@ -133,14 +133,14 @@ start_bin() {
     return 1
   fi
   log "正在启动核心进程..."
-  nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BINLOG" 2>&1 &
+  nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BIN_LOG" 2>&1 &
   # 将进程号写入 PID 文件, 以便后续管理
   echo $! > "$PIDFILE"
   sleep 0.8 # 短暂等待, 以便检查进程是否成功启动
   if kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
     log "代理核心启动成功 (PID $(cat "$PIDFILE"))"
   else
-    log "错误: 核心进程启动失败, 请检查日志 $BINLOG"
+    log "错误: 核心进程启动失败, 请检查日志 $BIN_LOG"
     return 1
   fi
   return 0
@@ -174,7 +174,7 @@ start_monitor_if_needed() {
 
   if [ "$en" = "1" ]; then
     # 检查进程是否已在运行
-    if ! pgrep -f $monitor >/dev/null 2>&1; then
+    if ! ps | awk -v monitor="$monitor" '$0 ~ monitor {exit 1}'; then
       if [ -x "$MODDIR/$monitor" ]; then
         log "正在启动守护进程..."
         bg_run sh "$MODDIR/$monitor"
@@ -196,7 +196,7 @@ start_refresh_if_needed() {
   refresh="refresh-ipset.sh"
 
   if [ "$en" = "1" ]; then
-    if ! pgrep -f $refresh >/dev/null 2>&1; then
+    if ! ps | awk -v refresh="$refresh" '$0 ~ refresh {exit 1}'; then
       if [ -x "$MODDIR/$refresh" ]; then
         log "正在启动 IPSet 刷新脚本..."
         bg_run sh "$MODDIR/$refresh"

@@ -29,9 +29,7 @@ fi
 # 通过进程名进行全面清理
 if command -v pgrep >/dev/null 2>&1 && command -v readlink >/dev/null 2>&1; then
   ui_print_safe "正在查找并终止残留进程..."
-  first_char=${BIN_NAME%%"${BIN_NAME#?}"}
-  rest_chars=${BIN_NAME#?}
-  for pid in $(pgrep -f "[$first_char]$rest_chars.*$MODID" 2>/dev/null); do
+  for pid in $(ps | awk -v modid="$MODID" -v bin="$BIN_NAME" '$0 ~ bin && $0 ~ modid {print $1}'); do
     exe=$(readlink -f "/proc/$pid/exe" 2>/dev/null || echo "unknown")
     ui_print_safe "- 发现残留进程 $pid $exe, 正在终止"
     kill "$pid" >/dev/null 2>&1
