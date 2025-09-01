@@ -55,8 +55,16 @@ read_setting() {
   value=""
 
   if [ -f "$f" ]; then
-    # 使用 awk 安全地提取和清理值, 移除前导/尾随的空白字符和回车
-    value=$(awk -v key="$key" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2); gsub(/^[ \t\r]+|[ \t\r]+$/, "", value); print value; exit; }' "$f")
+    value=$(awk -F= -v k="$key" '
+      $1 == k {
+        # Get the value part
+        v = substr($0, length(k) + 2)
+        # Trim leading/trailing whitespace
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", v)
+        print v
+        exit
+      }
+    ' "$f")
   fi
 
   if [ -n "$value" ]; then
@@ -182,16 +190,19 @@ abort_safe() {
 # @param "$1" 传入 "✅" 或 "⛔"
 update_desc() {
   icon="$1"
-  cur="$(sed -n 's/^description=//p' "$PROP")"
-  if printf '%s' "$cur" | grep -q '\[Proxy Status: [^]]*\]'; then
-    status="$(printf '%s' "$cur" | sed "s#\\[Proxy Status: [^]]*\\]#[Proxy Status: $icon]#")"
-  else
-    # 没找到状态片段时，将其前置到整个描述前面
-    status="[Proxy Status: $icon] $cur"
-  fi
-  esc_status="$(printf '%s' "$status" | sed 's/[\/&]/\\&/g')"
   tmp="$PROP.new"
-  sed "s/^description=.*/description=${esc_status}/" "$PROP" > "$tmp" && mv -f "$tmp" "$PROP"
+  awk -v icon="$icon" '
+    /^description=/ {
+      desc = substr($0, 13)
+      if (sub(/\[Proxy Status: [^]]*\]/, "[Proxy Status: " icon "]", desc)) {
+        print "description=" desc
+      } else {
+        print "description=[Proxy Status: " icon "] " desc
+      }
+      next
+    }
+    { print }
+  ' "$PROP" > "$tmp" && mv -f "$tmp" "$PROP"
 }
 
 # --- 安全的文件权限设置函数 (兼容非安装环境) ---

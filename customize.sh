@@ -94,8 +94,8 @@ set_perm_recursive_safe "$MODPATH" 0 0 0755 0644
 ui_print_safe "- 已赋予所有文件默认权限"
 
 # 为所有需要执行的脚本和二进制文件单独设置可执行权限 (755)
-if [ -f "$BIN_PATH" ]; then
-  set_perm_safe "$BIN_PATH" 0 0 0755
+if [ -f "$MODPATH/$BIN_NAME" ]; then
+  set_perm_safe "$MODPATH/$BIN_NAME" 0 0 0755
   log_print "- 已赋予代理核心可执行权限"
 fi
 
