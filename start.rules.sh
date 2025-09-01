@@ -20,6 +20,22 @@ MODDIR=$(dirname "$0")
 
 log "[start.rules.sh]: 接收参数: $1"
 
+# --- 动态端口检测 ---
+# 从 sing-box 配置文件中提取 TProxy 监听端口, 覆盖 common.sh 中的默认值
+TPROXY_PORT_FROM_CONFIG=$( (
+  if [ -f "$CONFIG" ]; then
+    # 查找 "inbounds" 中 "type": "tproxy" 的 "listen_port"
+    awk '/"type": "tproxy"/,/"}/' "$CONFIG" | grep '"listen_port"' | awk '{print $2}' | tr -d ','
+  fi
+) )
+
+if [ -n "$TPROXY_PORT_FROM_CONFIG" ]; then
+  log "检测到 TProxy 端口: $TPROXY_PORT_FROM_CONFIG"
+  TPROXY_PORT=$TPROXY_PORT_FROM_CONFIG
+else
+  log "未检测到 TProxy 端口, 使用默认值: $TPROXY_PORT"
+fi
+
 # 封装 common.sh 中的 resolve_ips 函数，便于在此脚本中调用
 resolve_ips_bin() { resolve_ips "$1"; }
 
@@ -74,7 +90,7 @@ populate_outbound_ipsets() {
           ipset add "$IPSET_V4" "$host" -exist 2>/dev/null || true
         else
           # 如果 ipset 不可用，则回退到使用 iptables RETURN 规则
-          iptables -t mangle -I SINGBOX 1 -d "$host" -j RETURN 2>/dev/null || true
+          iptables -t mangle -I "$CHAIN_NAME" 1 -d "$host" -j RETURN 2>/dev/null || true
         fi
         continue
       fi
@@ -84,13 +100,13 @@ populate_outbound_ipsets() {
           if command -v ipset >/dev/null 2>&1; then
             ipset add "$IPSET_V6" "$ip" -exist 2>/dev/null || true
           else
-            ip6tables -t mangle -I SINGBOX6 1 -d "$ip" -j RETURN 2>/dev/null || true
+            ip6tables -t mangle -I "${CHAIN_NAME}6" 1 -d "$ip" -j RETURN 2>/dev/null || true
           fi
         else # IPv4
           if command -v ipset >/dev/null 2>&1; then
             ipset add "$IPSET_V4" "$ip" -exist 2>/dev/null || true
           else
-            iptables -t mangle -I SINGBOX 1 -d "$ip" -j RETURN 2>/dev/null || true
+            iptables -t mangle -I "$CHAIN_NAME" 1 -d "$ip" -j RETURN 2>/dev/null || true
           fi
         fi
       done
@@ -114,14 +130,14 @@ setup_routes() {
 
 # 创建自定义的 iptables 链
 create_chains() {
-  # 为 IPv4 创建 SINGBOX 链
-  iptables -t mangle -N SINGBOX 2>/dev/null || true
-  iptables -t mangle -F SINGBOX 2>/dev/null || true
+  # 为 IPv4 创建自定义链
+  iptables -t mangle -N "$CHAIN_NAME" 2>/dev/null || true
+  iptables -t mangle -F "$CHAIN_NAME" 2>/dev/null || true
 
-  # 如果支持 IPv6，则创建 SINGBOX6 链
+  # 如果支持 IPv6，则创建对应的 IPv6 链
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -N SINGBOX6 2>/dev/null || true
-    ip6tables -t mangle -F SINGBOX6 2>/dev/null || true
+    ip6tables -t mangle -N "${CHAIN_NAME}6" 2>/dev/null || true
+    ip6tables -t mangle -F "${CHAIN_NAME}6" 2>/dev/null || true
   fi
 }
 
@@ -129,16 +145,16 @@ create_chains() {
 add_whitelists_and_rules() {
   # --- 白名单规则 (RETURN) ---
   # 允许访问保留地址和私有地址，不通过代理
-  iptables -t mangle -A SINGBOX -d 127.0.0.0/8 -j RETURN
-  iptables -t mangle -A SINGBOX -d 10.0.0.0/8 -j RETURN
-  iptables -t mangle -A SINGBOX -d 192.168.0.0/16 -j RETURN
-  iptables -t mangle -A SINGBOX -d 172.16.0.0/12 -j RETURN
-  iptables -t mangle -A SINGBOX -d 169.254.0.0/16 -j RETURN
-  iptables -t mangle -A SINGBOX -d 224.0.0.0/4 -j RETURN # 组播地址
+  iptables -t mangle -A "$CHAIN_NAME" -d 127.0.0.0/8 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -d 10.0.0.0/8 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -d 192.168.0.0/16 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -d 172.16.0.0/12 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -d 169.254.0.0/16 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -d 224.0.0.0/4 -j RETURN # 组播地址
 
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -A SINGBOX6 -d ::1/128 -j RETURN 2>/dev/null || true
-    ip6tables -t mangle -A SINGBOX6 -d fc00::/18 -j RETURN 2>/dev/null || true # ULA
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -d ::1/128 -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -d fc00::/18 -j RETURN 2>/dev/null || true # ULA
   fi
 
   # 将 FakeIP 网段加入白名单，避免 DNS 查询结果被代理
@@ -146,57 +162,61 @@ add_whitelists_and_rules() {
   fake4="$1"
   fake6="$2"
   if [ -n "$fake4" ]; then
-    iptables -t mangle -A SINGBOX -d "$fake4" -j RETURN
+    iptables -t mangle -A "$CHAIN_NAME" -d "$fake4" -j RETURN
   fi
   if [ -n "$fake6" ]; then
-    ip6tables -t mangle -A SINGBOX6 -d "$fake6" -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -d "$fake6" -j RETURN 2>/dev/null || true
   fi
 
   # 忽略发往代理端口自身的流量
-  iptables -t mangle -A SINGBOX -p tcp --dport "$TPROXY_PORT" -j RETURN
-  iptables -t mangle -A SINGBOX -p udp --dport "$TPROXY_PORT" -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -p tcp --dport "$TPROXY_PORT" -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -p udp --dport "$TPROXY_PORT" -j RETURN
   # 忽略 DNS 查询流量（通常由 sing-box 内部处理）
-  iptables -t mangle -A SINGBOX -p udp --dport 53 -j RETURN
-  iptables -t mangle -A SINGBOX -p tcp --dport 53 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -p udp --dport 53 -j RETURN
+  iptables -t mangle -A "$CHAIN_NAME" -p tcp --dport 53 -j RETURN
 
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -A SINGBOX6 -p tcp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
-    ip6tables -t mangle -A SINGBOX6 -p udp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
-    ip6tables -t mangle -A SINGBOX6 -p udp --dport 53 -j RETURN 2>/dev/null || true
-    ip6tables -t mangle -A SINGBOX6 -p tcp --dport 53 -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p tcp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p udp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p udp --dport 53 -j RETURN 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p tcp --dport 53 -j RETURN 2>/dev/null || true
   fi
 
   # 使用 ipset 匹配出站服务器 IP，并将其 RETURN
   if command -v ipset >/dev/null 2>&1; then
-    iptables -t mangle -A SINGBOX -m set --match-set "$IPSET_V4" dst -j RETURN 2>/dev/null || true
+    iptables -t mangle -A "$CHAIN_NAME" -m set --match-set "$IPSET_V4" dst -j RETURN 2>/dev/null || true
     if ip -6 route show >/dev/null 2>&1; then
-      ip6tables -t mangle -A SINGBOX6 -m set --match-set "$IPSET_V6" dst -j RETURN 2>/dev/null || true
+      ip6tables -t mangle -A "${CHAIN_NAME}6" -m set --match-set "$IPSET_V6" dst -j RETURN 2>/dev/null || true
     fi
   fi
 
   # --- 核心 TPROXY 规则 ---
   # 将剩余的 TCP/UDP 流量重定向到 TPROXY 端口，并打上 fwmark
   # shellcheck disable=SC2086
-  iptables -t mangle -A SINGBOX -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/$MARK
-  iptables -t mangle -A SINGBOX -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
+  iptables -t mangle -A "$CHAIN_NAME" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/$MARK
+  iptables -t mangle -A "$CHAIN_NAME" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
 
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -A SINGBOX6 -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
-    ip6tables -t mangle -A SINGBOX6 -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
+    ip6tables -t mangle -A "${CHAIN_NAME}6" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
   fi
 
   # --- 应用规则链 ---
-  # 将 PREROUTING 链的流量导向我们自定义的 SINGBOX 链
+  # 将 PREROUTING 链的流量导向我们自定义的链
   # 使用 -C 检查规则是否存在，避免重复添加
-  iptables -t mangle -C PREROUTING -j SINGBOX 2>/dev/null || iptables -t mangle -A PREROUTING -j SINGBOX
+  iptables -t mangle -C PREROUTING -j "$CHAIN_NAME" 2>/dev/null || iptables -t mangle -A PREROUTING -j "$CHAIN_NAME"
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -C PREROUTING -j SINGBOX6 2>/dev/null || ip6tables -t mangle -A PREROUTING -j SINGBOX6
+    ip6tables -t mangle -C PREROUTING -j "${CHAIN_NAME}6" 2>/dev/null || ip6tables -t mangle -A PREROUTING -j "${CHAIN_NAME}6"
   fi
 }
 
 # "start" 命令的执行函数
 do_start() {
   log "[start.rules.sh]: 应用规则..."
+  if ! kernel_supports_tproxy; then
+    log "[start.rules.sh]: 内核不支持 TPROXY，跳过规则应用。"
+    return 1
+  fi
   create_ipsets
   setup_routes
   create_chains
@@ -209,15 +229,15 @@ do_start() {
 do_stop() {
   log "[start.rules.sh]: 清除规则..."
   # 从 PREROUTING 链中删除我们的规则
-  iptables -t mangle -D PREROUTING -j SINGBOX 2>/dev/null || true
+  iptables -t mangle -D PREROUTING -j "$CHAIN_NAME" 2>/dev/null || true
   # 清空并删除自定义链
-  iptables -t mangle -F SINGBOX 2>/dev/null || true
-  iptables -t mangle -X SINGBOX 2>/dev/null || true
+  iptables -t mangle -F "$CHAIN_NAME" 2>/dev/null || true
+  iptables -t mangle -X "$CHAIN_NAME" 2>/dev/null || true
 
   if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -t mangle -D PREROUTING -j SINGBOX6 2>/dev/null || true
-    ip6tables -t mangle -F SINGBOX6 2>/dev/null || true
-    ip6tables -t mangle -X SINGBOX6 2>/dev/null || true
+    ip6tables -t mangle -D PREROUTING -j "${CHAIN_NAME}6" 2>/dev/null || true
+    ip6tables -t mangle -F "${CHAIN_NAME}6" 2>/dev/null || true
+    ip6tables -t mangle -X "${CHAIN_NAME}6" 2>/dev/null || true
   fi
 
   # 删除策略路由规则和路由表项

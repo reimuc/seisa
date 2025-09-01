@@ -33,6 +33,7 @@ LOCK_FILE=${LOCK_FILE:-"$PERSIST_DIR/.service_lock"}       # 服务锁文件路�
 
 # 定义透明代理 (TProxy) 所需的网络参数
 TPROXY_PORT=${TPROXY_PORT:-1536}                           # TProxy 监听端口
+CHAIN_NAME=${CHAIN_NAME:-"$MODDIR"}                        # 链名, 用于 iptables 规则
 MARK=${MARK:-0x1}                                          # fwmark 标记, 用于策略路由
 ROUTE_TABLE=${ROUTE_TABLE:-100}                            # 策略路由使用的路由表ID
 IPSET_V4=${IPSET_V4:-singbox_outbounds_v4}                 # 用于匹配出站 IPv4 流量的 ipset 名称
