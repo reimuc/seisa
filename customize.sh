@@ -56,7 +56,7 @@ if [ -d "$MODDIR" ]; then
 
   sleep 1
 else
-  ui_print_safe "模块安装中..."
+  ui_print_safe "正在安装模块..."
 fi
 
 # ---
@@ -86,7 +86,7 @@ done
 # 步骤 4: 设置文件权限
 # ---
 # 使用 set_perm* 命令来设置最终安装后的文件和目录的权限与 SELinux 上下文
-ui_print_safe "设置文件权限中..."
+ui_print_safe "正在设置文件权限..."
 
 # 目录: 755 (rwxr-xr-x) - 所有者可读写执行, 组和其他用户可读可执行
 # 文件: 644 (rw-r--r--) - 所有者可读写, 组和其他用户只读

@@ -38,6 +38,86 @@ MARK=${MARK:-0x1}                                          # fwmark 标记, 用�
 ROUTE_TABLE=${ROUTE_TABLE:-100}                            # 策略路由使用的路由表ID
 IPSET_V4=${IPSET_V4:-singbox_outbounds_v4}                 # 用于匹配出站 IPv4 流量的 ipset 名称
 IPSET_V6=${IPSET_V6:-singbox_outbounds_v6}                 # 用于匹配出站 IPv6 流量的 ipset 名称
+INTRANET=${INTRANET:-"0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 192.168.0.0/16 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32"}
+INTRANET6=${INTRANET6:-"::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 2001::/32 2001:10::/28 2001:20::/28 2001:db8::/32 2002::/16 fc00::/7 fe80::/10 ff00::/8"}
+
+# --- 读写持久化函数 ---
+
+# 从配置文件中读取一个键 (key) 对应的值 (value)
+#
+# @param "$1" key 要读取的键
+# @param "$2" default_val (可选) 键不存在时返回的默认值
+# @return 成功时返回读取到的值, 文件不存在或键不存在时返回默认值
+read_setting() {
+  key="$1"
+  default_val="$2"
+  f="$SETTING"
+  value=""
+
+  if [ -f "$f" ]; then
+    # 使用 awk 安全地提取和清理值, 移除前导/尾随的空白字符和回车
+    value=$(awk -v key="$key" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2); gsub(/^[ \t\r]+|[ \t\r]+$/, "", value); print value; exit; }' "$f")
+  fi
+
+  if [ -n "$value" ]; then
+    echo "$value"
+  else
+    echo "$default_val"
+  fi
+}
+
+# 将配置项写入配置文件
+#
+# @param "$1" 配置键 (key)
+# @param "$2" 配置值 (value)
+write_setting() {
+  key="$1"; v="$2"
+  f="$SETTING"
+  tmp_f="$f.tmp.$$"
+
+  mkdir -p "$(dirname "$f")"
+  if [ ! -f "$f" ]; then echo "# 模块配置文件" > "$f" || true; fi
+
+  awk -v k="$key" -v v="$v" '
+    BEGIN { updated = 0 }
+    {
+      eq_pos = index($0, "=")
+      if (eq_pos > 0 && substr($0, 1, eq_pos - 1) == k) {
+        print k "=" v
+        updated = 1
+      } else {
+        print $0
+      }
+    }
+    END {
+      if (updated == 0) {
+        print k "=" v
+      }
+    }
+  ' "$f" > "$tmp_f" && mv "$tmp_f" "$f"
+
+  chmod 600 "$f" 2>/dev/null || true
+}
+
+# --- 模块核心文件和程序的默认路径 ---
+
+BIN_NAME=$(read_setting "BIN_NAME" "sing-box")             # 代理核心文件名
+BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 代理核心完整路径
+BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}           # 核心日志文件路径
+
+# --- 代理进程识别 ---
+
+# 运行代理进程的用户 UID
+# 1. 从由 BIN_NAME (在文件末尾定义) 指定的正在运行的进程中获取
+# 2. 使用 PROXY_PACKAGE_NAME 从包管理器中获取
+PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID" "2000")}
+
+# --- 应用白名单 ---
+
+# 应用白名单, 列出的应用包名将绕过代理
+# 多个包名请用空格隔开
+# 示例: WHITELIST_APPS="com.android.vending com.google.android.gms"
+WHITELIST_APPS=${WHITELIST_APPS:-$(read_setting "WHITELIST_APPS" "")}
 
 # --- 系统 PATH 扩展 ---
 
@@ -168,63 +248,6 @@ set_perm_recursive_safe() {
   fi
 }
 
-# --- 读取持久化配置 ---
-#
-# 从配置文件中读取一个键 (key) 对应的值 (value)
-#
-# @param "$1" key 要读取的键
-# @param "$2" default_val (可选) 键不存在时返回的默认值
-# @return 成功时返回读取到的值, 文件不存在或键不存在时返回默认值
-read_setting() {
-  key="$1"
-  default_val="$2"
-  f="$SETTING"
-  value=""
-
-  if [ -f "$f" ]; then
-    # 使用 awk 安全地提取和清理值, 移除前导/尾随的空白字符和回车
-    value=$(awk -v key="$key" 'index($0, key "=") == 1 { value = substr($0, length(key) + 2); gsub(/^[ \t\r]+|[ \t\r]+$/, "", value); print value; exit; }' "$f")
-  fi
-
-  if [ -n "$value" ]; then
-    echo "$value"
-  else
-    echo "$default_val"
-  fi
-}
-
-# 将配置项写入配置文件
-# @param "$1" 配置键 (key)
-# @param "$2" 配置值 (value)
-write_setting() {
-  key="$1"; v="$2"
-  f="$SETTING"
-  tmp_f="$f.tmp.$$"
-
-  mkdir -p "$(dirname "$f")"
-  if [ ! -f "$f" ]; then echo "# 模块配置文件" > "$f" || true; fi
-
-  awk -v k="$key" -v v="$v" '
-    BEGIN { updated = 0 }
-    {
-      eq_pos = index($0, "=")
-      if (eq_pos > 0 && substr($0, 1, eq_pos - 1) == k) {
-        print k "=" v
-        updated = 1
-      } else {
-        print $0
-      }
-    }
-    END {
-      if (updated == 0) {
-        print k "=" v
-      }
-    }
-  ' "$f" > "$tmp_f" && mv "$tmp_f" "$f"
-
-  chmod 600 "$f" 2>/dev/null || true
-}
-
 # --- 域名解析工具 ---
 #
 # 使用系统上可用的工具, 尽力将主机名解析为 IP 地址, 按顺序尝试 `getent`, `dig`, `nslookup`, `ping`
@@ -295,8 +318,4 @@ bg_run() {
   echo $!
 }
 
-# 定义模块使用的核心文件和程序的默认路径
-BIN_NAME=$(read_setting "BIN_NAME" "sing-box")             # 代理核心文件名
-BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 代理核心完整路径
-BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}           # 核心日志文件路径
 # END of common.sh

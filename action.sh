@@ -15,7 +15,7 @@ set -e
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
-ui_print_safe "[action.sh]: 切换服务中..."
+ui_print_safe "[action.sh]: 正在切换服务状态..."
 
 if [ -x "$SERVICE" ]; then
 

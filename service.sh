@@ -139,7 +139,13 @@ start_bin() {
   : > "$BIN_LOG"
 
   # 启动进程
-  nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BIN_LOG" 2>&1 &
+  if [ -n "$PROXY_UID" ] && [ "$PROXY_UID" -ne 0 ]; then
+    log "以用户 UID '$PROXY_UID' 启动核心进程..."
+    su "$PROXY_UID" -c "nohup '$BIN_PATH' run -D '$PERSIST_DIR' >> '$BIN_LOG' 2>&1 &"
+  else
+    log "以 root 用户启动核心进程 (不推荐)..."
+    nohup "$BIN_PATH" run -D "$PERSIST_DIR" >> "$BIN_LOG" 2>&1 &
+  fi
   # 将进程号写入 PID 文件
   echo $! > "$PIDFILE"
 

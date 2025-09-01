@@ -29,7 +29,7 @@ RESTARTS_FILE="$PERSIST_DIR/.restart_timestamps"
 # 确保该文件存在
 touch "$RESTARTS_FILE" 2>/dev/null || true
 
-log "[monitor.sh]: 监控脚本启动中..."
+log "[monitor.sh]: 正在启动监控守护"
 
 if [ ! -x "$SERVICE" ]; then
   log "[monitor.sh]: 服务脚本 $(basename "$SERVICE") 未找到或不可执行, 启动失败"
