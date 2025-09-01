@@ -85,8 +85,8 @@ populate_outbound_ipsets() {
   if [ -f "$CONFIG" ]; then
     # 提取所有 "server" 字段的值, 去重
     awk -F'"' '/"server"/ {print $4}' "$CONFIG" | sort -u | while read -r host; do
+      log "正在处理出站服务器: $host"
       [ -z "$host" ] && continue
-      log "正在处理出站服务器..."
       # 使用 case 语句判断是 IP 还是域名, 这比 grep -E 更具可移植性
       case "$host" in
         # 匹配看起来像 IPv4 地址的字符串 (e.g., 1.2.3.4)
@@ -307,7 +307,6 @@ do_start() {
     log "- 内核不支持 TPROXY, 跳过规则应用"
     return 1
   fi
-  create_ipsets
   setup_routes
   create_chains
   populate_outbound_ipsets

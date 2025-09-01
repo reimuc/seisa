@@ -118,7 +118,7 @@ BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}           # 核心日志文件�
 # 运行代理进程的用户 UID
 # 1. 从由 BIN_NAME (在文件末尾定义) 指定的正在运行的进程中获取
 # 2. 使用 PROXY_PACKAGE_NAME 从包管理器中获取
-PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID" "2000")}
+PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID" "")}
 
 # --- 应用白名单 ---
 
