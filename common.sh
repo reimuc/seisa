@@ -34,13 +34,13 @@ LOCK_FILE=${LOCK_FILE:-"$PERSIST_DIR/.service_lock"}       # 服务锁文件路�
 # --- 网络与 TProxy 默认参数 ---
 
 # 定义透明代理 (TProxy) 所需的网络参数
-IPV6=${IPV6:-true}                                         # 是否启用ipv6
-TPROXY_PORT=${TPROXY_PORT:-1536}                           # TProxy 监听端口
-CHAIN_NAME=${CHAIN_NAME:-"FIREFLY"}                        # 链名, 用于 iptables 规则
-MARK=${MARK:-0x1}                                          # fwmark 标记, 用于策略路由
-ROUTE_TABLE=${ROUTE_TABLE:-100}                            # 策略路由使用的路由表ID
-IPSET_V4=${IPSET_V4:-singbox_outbounds_v4}                 # 用于匹配出站 IPv4 流量的 ipset 名称
-IPSET_V6=${IPSET_V6:-singbox_outbounds_v6}                 # 用于匹配出站 IPv6 流量的 ipset 名称
+IPV6=${IPV6:-false}                                       # 是否启用ipv6
+TPROXY_PORT=${TPROXY_PORT:-1536}                          # TProxy 监听端口
+CHAIN_NAME=${CHAIN_NAME:-"FIREFLY"}                       # 链名, 用于 iptables 规则
+MARK=${MARK:-0x1}                                         # fwmark 标记, 用于策略路由
+ROUTE_TABLE=${ROUTE_TABLE:-100}                           # 策略路由使用的路由表ID
+IPSET_V4=${IPSET_V4:-singbox_outbounds_v4}               # 用于匹配出站 IPv4 流量的 ipset 名称
+IPSET_V6=${IPSET_V6:-singbox_outbounds_v6}               # 用于匹配出站 IPv6 流量的 ipset 名称
 INTRANET=${INTRANET:-"0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.88.99.0/24 192.168.0.0/16 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4 255.255.255.255/32"}
 INTRANET6=${INTRANET6:-"::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 2001::/32 2001:10::/28 2001:20::/28 2001:db8::/32 2002::/16 fc00::/7 fe80::/10 ff00::/8"}
 
@@ -113,22 +113,22 @@ write_setting() {
 # --- 模块核心文件和程序的默认路径 ---
 
 BIN_NAME=$(read_setting "BIN_NAME" "sing-box")             # 代理核心文件名
-BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                  # 代理核心完整路径
-BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}           # 核心日志文件路径
+BIN_PATH=${BIN_PATH:-"$MODDIR/$BIN_NAME"}                 # 代理核心完整路径
+BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}          # 核心日志文件路径
 
 # --- 代理进程识别 ---
 
 # 运行代理进程的用户 UID
 # 1. 从由 BIN_NAME (在文件末尾定义) 指定的正在运行的进程中获取
 # 2. 使用 PROXY_PACKAGE_NAME 从包管理器中获取
-PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID" "")}
+PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID")}
 
 # --- 应用白名单 ---
 
 # 应用白名单, 列出的应用包名将绕过代理
 # 多个包名请用空格隔开
 # 示例: WHITELIST_APPS="com.android.vending com.google.android.gms"
-WHITELIST_APPS=${WHITELIST_APPS:-$(read_setting "WHITELIST_APPS" "")}
+WHITELIST_APPS=${WHITELIST_APPS:-$(read_setting "WHITELIST_APPS")}
 
 # --- 系统 PATH 扩展 ---
 
@@ -269,7 +269,7 @@ resolve_ips() {
   if [ -z "$host" ]; then return 1; fi
   # 1. getent: 最可靠的方式, 能同时查询 hosts 文件和 DNS
   if command -v getent >/dev/null 2>&1; then
-    getent ahosts "$host" 2>/dev/null | awk '{print $1}' | uniq
+    getent ahosts "$host" 2>/dev/null | cut -d' ' -f1 | uniq
     return 0
   fi
   # 2. dig: 专业的 DNS 查询工具
@@ -280,7 +280,7 @@ resolve_ips() {
   fi
   # 3. nslookup: 另一个常见的 DNS 查询工具
   if command -v nslookup >/dev/null 2>&1; then
-    nslookup "$host" 2>/dev/null | awk '/^Address: /{print $2}' || true
+    nslookup "$host" 2>/dev/null | grep '^Address: ' | cut -d' ' -f2 || true
     return 0
   fi
   # 4. ping: 作为最后的手段, 从 ping 的输出中提取 IP 地址
@@ -298,7 +298,7 @@ resolve_ips() {
 # @return 0 表示支持, 1 表示不支持
 kernel_supports_tproxy() {
   # 通过检查 `iptables` 的帮助文档中是否包含 "TPROXY" 关键字来判断
-  if iptables -t mangle -h 2>&1 | awk '{if(tolower($0) ~ /tproxy/) exit 0} ENDFILE{exit 1}'; then
+  if iptables -t mangle -h 2>&1 | grep -iq 'tproxy'; then
     return 0
   fi
   return 1
