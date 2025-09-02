@@ -43,16 +43,23 @@ cleanup() {
     sh "$START_RULES" stop >> "$LOGFILE" 2>&1 || log "- 规则脚本调用失败"
   else
     log "规则脚本在未找到, 尝试通用规则清理..."
-    iptables -t mangle -D PREROUTING -j SINGBOX 2>/dev/null || true
-    iptables -t mangle -F SINGBOX 2>/dev/null || true
-    iptables -t mangle -X SINGBOX 2>/dev/null || true
-    ip6tables -t mangle -D PREROUTING -j SINGBOX6 2>/dev/null || true
-    ip6tables -t mangle -F SINGBOX6 2>/dev/null || true
-    ip6tables -t mangle -X SINGBOX6 2>/dev/null || true
+    iptables -t mangle -D PREROUTING -j "$CHAIN_NAME" 2>/dev/null || true
+    iptables -t mangle -F "$CHAIN_NAME" 2>/dev/null || true
+    iptables -t mangle -X "$CHAIN_NAME" 2>/dev/null || true
+
+    if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
+      ip6tables -t mangle -D PREROUTING -j "${CHAIN_NAME}6" 2>/dev/null || true
+      ip6tables -t mangle -F "${CHAIN_NAME}6" 2>/dev/null || true
+      ip6tables -t mangle -X "${CHAIN_NAME}6" 2>/dev/null || true
+    fi
+
     ip rule del fwmark 0x1 lookup 100 2>/dev/null || true
     ip route del local 0.0.0.0/0 dev lo table 100 2>/dev/null || true
-    ip -6 rule del fwmark 0x1 lookup 100 2>/dev/null || true
-    ip -6 route del local ::/0 dev lo table 100 2>/dev/null || true
+
+    if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
+      ip -6 rule del fwmark 0x1 lookup 100 2>/dev/null || true
+      ip -6 route del local ::/0 dev lo table 100 2>/dev/null || true
+    fi
   fi
 
   # 3. 停止所有相关的辅助脚本 (如 monitor.sh)
@@ -162,7 +169,7 @@ start_bin() {
     fi
 
     # 检查日志中是否有成功初始化的标志
-    if grep -q "sing-box started" "$BIN_LOG" 2>/dev/null; then
+    if grep -qi "started" "$BIN_LOG" 2>/dev/null && ! grep -qi "error\|failed\|fatal" "$BIN_LOG" 2>/dev/null; then
       log "代理核心启动成功 (PID $pid)"
       return 0
     fi
@@ -189,14 +196,12 @@ start_bin() {
 apply_rules() {
   if [ -x "$START_RULES" ]; then
     log "正在应用防火墙规则..."
-    sh "$START_RULES" start >> "$LOGFILE" 2>&1 || log "规则脚本调用失败"
+    sh "$START_RULES" start >> "$LOGFILE" 2>&1 || {
+      log "规则脚本调用失败"
+      return 1
+    }
   else
     log "错误: 规则脚本未找到, 请重新安装模块"
-    return 1
-  fi
-  # shellcheck disable=SC2181
-  if [ $? -ne 0 ]; then
-    log "错误: 防火墙规则应用失败"
     return 1
   fi
   log "防火墙规则应用成功"

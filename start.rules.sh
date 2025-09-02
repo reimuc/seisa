@@ -79,12 +79,11 @@ flush_ipsets() {
 # 填充出站服务器 IP 到 ipset
 # 这是为了防止代理服务器自身的流量被再次送入代理, 造成循环
 populate_outbound_ipsets() {
-  create_ipsets
-  flush_ipsets
+  log "正在填充出站服务器 IP 到 ipSet 集合..."
   # 解析配置文件中的出站服务器地址并添加到 ipset
   if [ -f "$CONFIG" ]; then
     # 提取所有 "server" 字段的值, 去重
-    awk -F'"' '/"server"/ {print $4}' "$CONFIG" | sort -u | while read -r host; do
+    awk 'BEGIN{in_outbounds=0;is_proxy_type=0;server=""} /"outbounds":\s*\[/{in_outbounds=1;next} in_outbounds&&/]/{in_outbounds=0} in_outbounds&&/^\s*{/{is_proxy_type=0;server=""} in_outbounds&&/"type":\s*"(vmess|vless|trojan|ss|ssr|shadowsocks)"/{is_proxy_type=1} in_outbounds&&/"server":/{split($0,p,"\"");server=p[4]} in_outbounds&&/^\s*}/{if(is_proxy_type&&server!=""){print server};is_proxy_type=0;server=""}' "$CONFIG" | sort -u | while read -r host; do
       log "正在处理出站服务器: $host"
       [ -z "$host" ] && continue
       # 使用 case 语句判断是 IP 还是域名, 这比 grep -E 更具可移植性
@@ -101,7 +100,7 @@ populate_outbound_ipsets() {
         # 匹配包含冒号的字符串, 视为 IPv6 地址
         *:*)
           log "> 出站服务器v6: $host"
-          if [ "$IPV6" = "true" ]; then
+          if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
             if command -v ipset >/dev/null 2>&1; then
               ipset add "$IPSET_V6" "$host" -exist 2>/dev/null || true
             else
@@ -116,7 +115,7 @@ populate_outbound_ipsets() {
             # 解析出的 IP 再次用 case 判断
             case "$ip" in
               *:*) # IPv6
-                if [ "$IPV6" = "true" ]; then
+                if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
                   if command -v ipset >/dev/null 2>&1; then
                     ipset add "$IPSET_V6" "$ip" -exist 2>/dev/null || true
                   else
@@ -148,7 +147,7 @@ setup_routes() {
   ip rule add fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
 
   # 如果系统支持 IPv6, 则同样设置
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip -6 route add local default dev lo table "$ROUTE_TABLE" 2>/dev/null || true
     ip -6 rule add fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
   fi
@@ -162,7 +161,7 @@ create_chains() {
   iptables -w 100 -t mangle -F "$CHAIN_NAME" 2>/dev/null || true
 
   # 如果支持 IPv6, 则创建对应的 IPv6 链
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -N "${CHAIN_NAME}6" 2>/dev/null || true
     ip6tables -w 100 -t mangle -F "${CHAIN_NAME}6" 2>/dev/null || true
   fi
@@ -172,15 +171,17 @@ create_chains() {
 add_whitelists_and_rules() {
   # --- 白名单规则 (RETURN) ---
   # 跳过所有源自本机套接字的流量，防止代理循环和代理本机流量
+  log "正在添加白名单规则..."
   iptables -w 100 -t mangle -A "$CHAIN_NAME" -m socket -j RETURN
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -m socket -j RETURN 2>/dev/null || true
   fi
 
   # 如果定义了 PROXY_UID, 则跳过代理进程自身产生的流量
   if [ -n "$PROXY_UID" ]; then
+    log "正在添加代理进程 UID 白名单规则..."
     iptables -w 100 -t mangle -A "$CHAIN_NAME" -m owner --uid-owner "$PROXY_UID" -j RETURN
-    if ip -6 route show >/dev/null 2>&1; then
+    if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
       ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -m owner --uid-owner "$PROXY_UID" -j RETURN 2>/dev/null || true
     fi
   fi
@@ -188,13 +189,13 @@ add_whitelists_and_rules() {
   # --- 应用白名单处理 ---
   if [ -n "$WHITELIST_APPS" ]; then
     if command -v dumpsys >/dev/null 2>&1; then
-      log "正在处理应用白名单..."
+      log "正在添加应用白名单规则..."
       for app_pkg in $WHITELIST_APPS; do
         uid=$(dumpsys package "$app_pkg" 2>/dev/null | awk -F'=' '/userId=/ {print $2; exit}')
         if [ -n "$uid" ]; then
           log "> 将应用 '$app_pkg' (UID: $uid) 加入白名单。"
           iptables -w 100 -t mangle -A "$CHAIN_NAME" -m owner --uid-owner "$uid" -j RETURN
-          if ip -6 route show >/dev/null 2>&1; then
+          if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
             ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -m owner --uid-owner "$uid" -j RETURN 2>/dev/null || true
           fi
         else
@@ -207,19 +208,20 @@ add_whitelists_and_rules() {
   fi
 
   # 允许访问保留地址和私有地址, 不通过代理
+  log "正在添加保留地址和私有地址白名单规则..."
   if [ -n "$INTRANET" ]; then
     for ip in $INTRANET; do
       iptables -w 100 -t mangle -A "$CHAIN_NAME" -d "$ip" -j RETURN
     done
   fi
 
-  if [ -n "$INTRANET6" ] && ip -6 route show >/dev/null 2>&1; then
+  if [ -n "$INTRANET6" ] && [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     for ip in $INTRANET6; do
       ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -d "$ip" -j RETURN 2>/dev/null || true
     done
   fi
 
-  # 将 FakeIP 网段加入白名单, 避免 DNS 查询结果被代理
+  log "正在添加 FakeIP 网段白名单规则..."
   # shellcheck disable=SC2046
   set -- $(extract_fakeip_ranges)
   fake4="$1"
@@ -227,14 +229,15 @@ add_whitelists_and_rules() {
   if [ -n "$fake4" ]; then
     iptables -w 100 -t mangle -A "$CHAIN_NAME" -d "$fake4" -j RETURN
   fi
-  if [ -n "$fake6" ]; then
+  if [ -n "$fake6" ] && [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -d "$fake6" -j RETURN 2>/dev/null || true
   fi
 
   # 忽略发往代理端口自身的流量
+  log "正在添加代理端口白名单规则..."
   iptables -w 100 -t mangle -A "$CHAIN_NAME" -p tcp --dport "$TPROXY_PORT" -j RETURN
   iptables -w 100 -t mangle -A "$CHAIN_NAME" -p udp --dport "$TPROXY_PORT" -j RETURN
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -p tcp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -p udp --dport "$TPROXY_PORT" -j RETURN 2>/dev/null || true
   fi
@@ -242,17 +245,18 @@ add_whitelists_and_rules() {
   # 使用 ipset 匹配出站服务器 IP, 并将其 RETURN
   if command -v ipset >/dev/null 2>&1; then
     iptables -w 100 -t mangle -A "$CHAIN_NAME" -m set --match-set "$IPSET_V4" dst -j RETURN 2>/dev/null || true
-    if ip -6 route show >/dev/null 2>&1; then
+    if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
       ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -m set --match-set "$IPSET_V6" dst -j RETURN 2>/dev/null || true
     fi
   fi
 
   # --- 核心 TPROXY 规则 ---
   # 将剩余的 TCP/UDP 流量重定向到 TPROXY 端口, 并打上 fwmark
+  log "正在添加核心 TPROXY 规则..."
   iptables -w 100 -t mangle -A "$CHAIN_NAME" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
   iptables -w 100 -t mangle -A "$CHAIN_NAME" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
 
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME}6" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
   fi
@@ -260,12 +264,29 @@ add_whitelists_and_rules() {
   # --- 应用规则链 ---
   # 将 PREROUTING 和 OUTPUT 链的流量导向我们自定义的链
   # PREROUTING 用于转发流量, OUTPUT 用于本机产生的流量
-  # 使用 -C 检查规则是否存在, 避免重复添加
-  iptables -w 100 -t mangle -C PREROUTING -j "$CHAIN_NAME" 2>/dev/null || iptables -w 100 -t mangle -A PREROUTING -j "$CHAIN_NAME"
-  iptables -w 100 -t mangle -C OUTPUT -j "$CHAIN_NAME" 2>/dev/null || iptables -w 100 -t mangle -A OUTPUT -j "$CHAIN_NAME"
-  if ip -6 route show >/dev/null 2>&1; then
-    ip6tables -w 100 -t mangle -C PREROUTING -j "${CHAIN_NAME}6" 2>/dev/null || ip6tables -w 100 -t mangle -A PREROUTING -j "${CHAIN_NAME}6"
-    ip6tables -w 100 -t mangle -C OUTPUT -j "${CHAIN_NAME}6" 2>/dev/null || ip6tables -w 100 -t mangle -A OUTPUT -j "${CHAIN_NAME}6"
+  # 使用 iptables-save 检查规则是否存在, 避免重复添加
+  log "正在添加应用规则链..."
+  
+  # 为 IPv4 添加规则
+  if ! iptables-save -t mangle | grep -q " -A PREROUTING -j $CHAIN_NAME"; then
+    log "> 添加 IPv4 PREROUTING 规则"
+    iptables -w 100 -t mangle -A PREROUTING -j "$CHAIN_NAME"
+  fi
+  if ! iptables-save -t mangle | grep -q " -A OUTPUT -j $CHAIN_NAME"; then
+    log "> 添加 IPv4 OUTPUT 规则"
+    iptables -w 100 -t mangle -A OUTPUT -j "$CHAIN_NAME"
+  fi
+
+  # 为 IPv6 添加规则（如果启用）
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
+    if ! ip6tables-save -t mangle | grep -q " -A PREROUTING -j ${CHAIN_NAME}6"; then
+      log "> 添加 IPv6 PREROUTING 规则"
+      ip6tables -w 100 -t mangle -A PREROUTING -j "${CHAIN_NAME}6"
+    fi
+    if ! ip6tables-save -t mangle | grep -q " -A OUTPUT -j ${CHAIN_NAME}6"; then
+      log "> 添加 IPv6 OUTPUT 规则"
+      ip6tables -w 100 -t mangle -A OUTPUT -j "${CHAIN_NAME}6"
+    fi
   fi
 }
 
@@ -302,11 +323,12 @@ get_proxy_uid() {
 # "start" 命令的执行函数
 do_start() {
   log "正在应用防火墙规则..."
-  get_proxy_uid
+  # get_proxy_uid
   if ! kernel_supports_tproxy; then
     log "- 内核不支持 TPROXY, 跳过规则应用"
     return 1
   fi
+  create_ipsets
   setup_routes
   create_chains
   populate_outbound_ipsets
@@ -324,7 +346,7 @@ do_stop() {
   iptables -w 100 -t mangle -F "$CHAIN_NAME" 2>/dev/null || true
   iptables -w 100 -t mangle -X "$CHAIN_NAME" 2>/dev/null || true
 
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip6tables -w 100 -t mangle -D PREROUTING -j "${CHAIN_NAME}6" 2>/dev/null || true
     ip6tables -w 100 -t mangle -F "${CHAIN_NAME}6" 2>/dev/null || true
     ip6tables -w 100 -t mangle -X "${CHAIN_NAME}6" 2>/dev/null || true
@@ -334,7 +356,7 @@ do_stop() {
   ip rule del fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
   ip route del local 0.0.0.0/0 dev lo table "$ROUTE_TABLE" 2>/dev/null || true
 
-  if ip -6 route show >/dev/null 2>&1; then
+  if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip -6 rule del fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
     ip -6 route del local ::/0 dev lo table "$ROUTE_TABLE" 2>/dev/null || true
   fi
@@ -351,6 +373,7 @@ do_stop() {
 # "refresh" 命令的执行函数
 do_refresh() {
   log "正在刷新 ipSet ..."
+  flush_ipsets
   populate_outbound_ipsets
   log "[start.rules.sh]: ipSet 已刷新"
 }
