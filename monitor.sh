@@ -4,19 +4,16 @@
 # 👁️ monitor.sh - 核心进程守护脚本
 # ============================================================================== 
 #
-# 守护代理核心进程，自动检测并重启异常退出，防止服务中断。
+# 守护代理核心进程, 自动检测并重启异常退出, 防止服务中断。
 # - 定期检查核心进程存活状态
-# - 自动重启并限制重启频率，防止资源浪费
+# - 自动重启并限制重启频率, 防止资源浪费
 #
 # ==============================================================================
 set -e
 
-# --- 初始化与变量定义 ---
 MODDIR=$(dirname "$0")
 # shellcheck source=common.sh
 . "$MODDIR/common.sh"
-
-# --- 可配置变量 ---
 
 # 在指定时间窗口内允许的最大重启次数
 MAX_RESTARTS=${MAX_RESTARTS:-6}
@@ -28,10 +25,11 @@ RESTARTS_FILE="$PERSIST_DIR/.restart_timestamps"
 # 确保该文件存在
 touch "$RESTARTS_FILE" 2>/dev/null || true
 
-log "👁️ [monitor.sh]: 启动监控守护"
+log "❤️=== [monitor] ===❤️"
+log "👁️ 启动监控守护..."
 
 if [ ! -x "$SERVICE" ]; then
-  log "❌ [monitor.sh]: 服务脚本 $(basename "$SERVICE") 不可执行，启动失败"
+  log "❌ 服务脚本 $(basename "$SERVICE") 不可执行, 启动失败"
   exit 0
 fi
 
@@ -51,11 +49,11 @@ monitor_loop() {
     fi
 
     # --- 如果代码执行到这里, 说明代理核心进程已停止运行 ---
-    log "❗ [monitor.sh]: 检测到核心已停止"
+    log "❗ 检测到核心已停止"
 
     # --- 检查 service.sh 是否正在运行 ---
     if [ -f "$LOCK_FILE" ]; then
-      log "⏳ [monitor.sh]: 服务启动中，等待..."
+      log "⏳ 服务启动中, 等待..."
       sleep 10 # 等待 10 秒后重新检查
       continue
     fi
@@ -70,20 +68,19 @@ monitor_loop() {
 
     # 如果重启次数超过上限
     if [ "$count" -ge "$MAX_RESTARTS" ]; then
-      log "⚠️ [monitor.sh]: $WINDOW 秒内重启次数超限($count)，休眠 60 秒"
+      log "⚠️ $WINDOW 秒内重启次数超限($count), 休眠 60 秒"
       sleep 60
       continue # 休眠后重新开始检查, 而不是立即重启
     fi
 
     # --- 执行重启操作 ---
-    log "🚀 [monitor.sh]: 核心未运行，尝试重启"
-    # 调用 service.sh 脚本来启动服务
-    # 注意：这里不使用 'start' 参数, 因为 service.sh 的默认行为就是启动
-    sh "$SERVICE" >> "$LOGFILE" 2>&1 || log "❌ [monitor.sh]: 脚本 $(basename "$SERVICE") 调用失败"
+    log "🚀 核心未运行, 尝试重启"
+
+    sh "$SERVICE" >> "$LOGFILE" 2>&1 || log "❌ 服务重启失败"
 
     # 记录本次重启的时间戳
     echo "$(date +%s)" >> "$RESTARTS_FILE"
-    # 短暂休眠, 等待 sing-box 启动
+
     sleep 2
   done
 }

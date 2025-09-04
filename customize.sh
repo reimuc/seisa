@@ -4,22 +4,21 @@
 # 🛠️ customize.sh - 安装初始化脚本
 # ============================================================================== 
 #
-# 负责模块安装后的初始化操作，保障环境一致性和数据迁移。
-# - 停止旧实例，防止新旧冲突
+# 负责模块安装后的初始化操作, 保障环境一致性和数据迁移。
+# - 停止旧实例, 防止新旧冲突
 # - 初始化持久化目录与配置
 # - 支持用户自定义预设与文件迁移
 #
 # ============================================================================== 
 
-# 在安装环境中, MODPATH 指向的是模块压缩包解压后的临时目录, 因此明确定义 MODDIR 为模块最终的安装位置
+# 在安装环境中, MODPATH 指向的是模块压缩包解压后的临时目录
 MODDIR=${MODDIR:-/data/adb/modules/$MODID} # 模块最终的安装路径
 
 # 引入公共函数库
-# 注意：此时 common.sh 位于 $MODPATH 下, 但其内部逻辑应能适应此上下文
 # shellcheck source=common.sh
 . "$MODPATH/common.sh"
 
-ui_print_safe "🛠️ [customize.sh]: 开始执行..."
+ui_print_safe "❤️=== [customize] ===❤️"
 ui_print_safe "📂 模块最终路径: $MODDIR"
 ui_print_safe "📂 模块临时路径: $MODPATH"
 ui_print_safe "📂 持久化数据路径: $PERSIST_DIR"
@@ -27,14 +26,14 @@ ui_print_safe "📂 持久化数据路径: $PERSIST_DIR"
 # ---
 # 步骤 1: 尽力优雅地停止现有的模块实例
 # ---
-# 覆盖文件之前, 确保旧的进程和服务已经完全停止，使用 "best-effort" (尽力而为) 的方式, 因为无法保证所有情况下都能完美停止
+# 覆盖文件之前, 确保旧的进程和服务已经完全停止, 使用 "best-effort" (尽力而为) 的方式, 因为无法保证所有情况下都能完美停止
 if [ -d "$MODDIR" ]; then
   ui_print_safe "🔄 升级中: 停止旧服务..."
 
   # 停止服务脚本
   if [ -x "$SERVICE" ]; then
     ui_print_safe "⏹️ 停止 $(basename "$SERVICE")..."
-    sh "$SERVICE" stop >/dev/null 2>&1 || ui_print_safe "❌ 脚本调用失败, 可能未停止"
+    sh "$SERVICE" stop >/dev/null 2>&1 || ui_print_safe "⚠️ 服务可能未完全停止"
   fi
 
   # 通过进程名进行全面清理
@@ -93,12 +92,6 @@ ui_print_safe "🔒 设置文件权限..."
 set_perm_recursive_safe "$MODPATH" 0 0 0755 0644
 ui_print_safe "✅ 已赋予所有文件默认权限"
 
-# 为所有需要执行的脚本和二进制文件单独设置可执行权限 (755)
-if [ -f "$MODPATH/$BIN_NAME" ]; then
-  set_perm_safe "$MODPATH/$BIN_NAME" 0 0 0755
-  ui_print_safe "✅ 已赋予代理核心可执行权限"
-fi
-
 # 使用循环为所有 .sh 脚本设置可执行权限, 避免遗漏
 for script in "$MODPATH"/*.sh; do
   if [ -f "$script" ]; then
@@ -107,5 +100,11 @@ for script in "$MODPATH"/*.sh; do
   fi
 done
 
-ui_print_safe "✨ [customize.sh]: 执行完毕"
+# 为所有需要执行的脚本和二进制文件单独设置可执行权限 (755)
+if [ -f "$MODPATH/$BIN_NAME" ]; then
+  set_perm_safe "$MODPATH/$BIN_NAME" 0 0 0755
+  ui_print_safe "✅ 已赋予代理核心可执行权限"
+fi
+
+ui_print_safe "✨ 执行完毕, 请注意修改配置并重启设备"
 exit 0

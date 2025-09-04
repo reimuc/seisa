@@ -291,19 +291,6 @@ resolve_ips() {
   return 1
 }
 
-# --- TProxy 支持检测 ---
-#
-# 检查内核的 iptables 是否支持 TPROXY 目标
-#
-# @return 0 表示支持, 1 表示不支持
-kernel_supports_tproxy() {
-  # 通过检查 `iptables` 的帮助文档中是否包含 "TPROXY" 关键字来判断
-  if iptables -t mangle -h 2>&1 | grep -iq 'tproxy'; then
-    return 0
-  fi
-  return 1
-}
-
 # --- 安全的后台命令执行函数 ---
 #
 # 以健壮、安全的方式在后台启动一个命令

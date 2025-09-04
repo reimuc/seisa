@@ -20,8 +20,8 @@ MODDIR=$(dirname "$0")
 CHAIN_NAME_PRE="${CHAIN_NAME}_PRE"
 CHAIN_NAME_OUT="${CHAIN_NAME}_OUT"
 
-log "❤️❤️❤️=== [start.rules] ===❤️❤️❤️"
-log "📬 接受参数 $1"
+log "❤️=== [start.rules] ===❤️"
+log "📬 规则应用, 接受参数 $1"
 
 # --- 动态端口检测 ---
 # 从 sing-box 配置文件中提取 TProxy 监听端口, 覆盖 common.sh 中的默认值
@@ -383,10 +383,6 @@ get_proxy_uid() {
 # "start" 命令的执行函数
 do_start() {
   log "🚀 正在应用防火墙规则..."
-  if ! kernel_supports_tproxy; then
-    log "❌ 内核不支持 TPROXY, 跳过规则应用"
-    return 1
-  fi
   create_ipsets
   setup_routes
   create_chains

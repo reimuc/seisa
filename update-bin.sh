@@ -4,10 +4,10 @@
 # ⬇️ update-bin.sh - 核心程序自动更新脚本
 # ============================================================================== 
 #
-# 自动下载并更新代理核心程序，支持多架构和自定义参数。
+# 自动下载并更新代理核心程序, 支持多架构和自定义参数。
 # - 支持 GitHub Releases 自动拉取最新版
 # - 自动检测 CPU 架构与文件类型
-# - 断点续传与重试机制，保障下载可靠
+# - 断点续传与重试机制, 保障下载可靠
 #
 # ==============================================================================
 set -e
@@ -15,7 +15,6 @@ set -e
 BIN_REPO="$1"
 RELEASE_TAG="$2"
 
-# --- 初始化与变量定义 ---
 MODDIR=$(dirname "$0")
 # shellcheck source=common.sh
 . "$MODDIR/common.sh"
@@ -28,7 +27,8 @@ RETRY_DELAY=5
 TMPDIR="${MODDIR}/.tmp"
 API_URL_BASE="https://api.github.com/repos/${BIN_REPO}/releases"
 
-log "🚀 [update-bin.sh]: 开始更新核心二进制文件..."
+log "❤️=== [update-bin] ===❤️"
+log "🚀 开始更新代理核心..."
 
 # --- 架构检测 ---
 case $(getprop ro.product.cpu.abi) in
@@ -45,7 +45,7 @@ case $(getprop ro.product.cpu.abi) in
     ARCHITECTURE="android-386"
     ;;
   *)
-    log "🤔 未知CPU架构，使用通用名称匹配"
+    log "🤔 未知CPU架构, 使用通用名称匹配"
     ARCHITECTURE=""
     ;;
 esac
@@ -129,21 +129,21 @@ if ! retry_curl "$ASSET_URL" "$FNAME"; then
   exit 1
 fi
 
-log "📦 下载完成，分析文件类型..."
+log "📦 下载完成, 分析文件类型..."
 BPATH=""
 file "$FNAME" 2>/dev/null | grep -i 'gzip compressed data' >/dev/null 2>&1 && IS_TAR=1 || IS_TAR=0
 file "$FNAME" 2>/dev/null | grep -i 'Zip archive data' >/dev/null 2>&1 && IS_ZIP=1 || IS_ZIP=0
 
 if [ "$IS_TAR" -eq 1 ]; then
-  log "🗜️ tar.gz 压缩包，解压中..."
+  log "🗜️ tar.gz 压缩包, 解压中..."
   tar -xzf "$FNAME" -C "$TMPDIR"
   BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n 1)
 elif [ "$IS_ZIP" -eq 1 ]; then
-  log "🗜️ zip 压缩包，解压中..."
+  log "🗜️ zip 压缩包, 解压中..."
   unzip -o "$FNAME" -d "$TMPDIR" >/dev/null 2>&1
   BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n 1)
 else
-  log "🔨 裸二进制文件，移动中..."
+  log "🔨 裸二进制文件, 移动中..."
   mv "$FNAME" "$TMPDIR/$BIN_NAME"
   BPATH="$TMPDIR/$BIN_NAME"
 fi
@@ -175,5 +175,5 @@ log "✅ 安装 $BIN_NAME 到 $BIN_PATH 成功"
 # --- 清理 ---
 rm -rf "$TMPDIR"
 
-log "✨ [update-bin.sh]: 更新成功！"
+log "✨ 代理核心更新成功"
 exit 0
