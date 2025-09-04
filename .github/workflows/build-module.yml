@@ -52,7 +52,7 @@ jobs:
       - name: Update version info
         id: versioning
         shell: bash
-        run: >
+        run: |
           set -e
 
           VERSION_NAME=""
@@ -205,15 +205,16 @@ jobs:
           rm -rf "$TMPDIR"
 
       - name: Set script permissions
-        run: |
-          chmod 755 ./*.sh
+        run: chmod 755 ./*.sh
+
       - name: Package module
         id: package
-        run: >
+        run: |
           ZIP_NAME="Seisa-Module-${{ steps.versioning.outputs.version_name }}.zip"
           zip -r "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
           echo "zip_path=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
+
       - name: Upload module artifact (Dev Build)
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
@@ -224,6 +225,7 @@ jobs:
             !.git
             !.github
             !*.zip
+
       - name: Upload module artifact (Release)
         if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
@@ -243,6 +245,7 @@ jobs:
         with:
           name: ${{ needs.build_and_package.outputs.zip_name }}
           path: .
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
