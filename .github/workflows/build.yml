@@ -97,7 +97,7 @@ jobs:
             fi
 
             SHORT_SHA=$(git rev-parse --short HEAD)
-            VERSION_NAME="$LATEST_TAG ($SHORT_SHA)"
+            VERSION_NAME="${LATEST_TAG}-${SHORT_SHA}"
             echo "Version name: $VERSION_NAME"
             echo "Calculated versionCode: $VERSION_CODE"
           fi
