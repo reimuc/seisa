@@ -3,35 +3,36 @@ name: Build Magisk Module
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - v[0-9]+.[0-9]+.[0-9]+
   workflow_dispatch:
     inputs:
       include_singbox:
-        description: 'Include agent core binary in zip'
+        description: Include agent core binary in zip
         type: choice
         options:
-          - 'true'
-          - 'false'
-        default: 'true'
+          - "true"
+          - "false"
+        default: "true"
       architecture:
-        description: "Target Android architecture"
+        description: Target Android architecture
         type: choice
         options:
           - arm64-v8a
           - armeabi-v7a
           - x86
           - x86_64
-        default: "arm64-v8a"
+        default: arm64-v8a
       bin_name:
-        description: "The name of the binary file to look for in releases."
+        description: The name of the binary file to look for in releases.
         type: string
-        default: "sing-box"
+        default: sing-box
       bin_repo:
-        description: "The agent core repository (owner/repo)"
+        description: The agent core repository (owner/repo)
         type: string
-        default: "SagerNet/sing-box"
+        default: SagerNet/sing-box
       release_tag:
-        description: "The agent core release tag (e.g., v1.9.0-beta.11). Leave empty for latest."
+        description: The agent core release tag (e.g., v1.9.0-beta.11). Leave empty for
+          latest.
         required: false
         type: string
 
@@ -46,34 +47,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Required to get git tags and commit history
+          fetch-depth: 0
 
       - name: Update version info
         id: versioning
         shell: bash
-        run: |
+        run: >
           set -e
-          
+
           VERSION_NAME=""
           VERSION_CODE=""
-          
+
           # Check if this is a tag push
+
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             VERSION_NAME="${{ github.ref_name }}"
-          
+
             # Calculate versionCode from tag vX.Y.Z
             VERSION_X=$(echo "$VERSION_NAME" | cut -d'v' -f2 | cut -d'.' -f1)
             VERSION_Y=$(echo "$VERSION_NAME" | cut -d'.' -f2)
             VERSION_Z=$(echo "$VERSION_NAME" | cut -d'.' -f3)
             VERSION_CODE=$((VERSION_X * 10000 + VERSION_Y * 100 + VERSION_Z))
-          
+
             echo "Release build for tag: $VERSION_NAME"
             echo "Calculated versionCode: $VERSION_CODE"
-          
+
           else
             # This is a dev build (manual dispatch)
             LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null)
-          
+
             if [[ -z "$LATEST_TAG" ]]; then
               # No tags found, this is the first version
               echo "No tags found. This is an initial development build."
@@ -90,20 +92,17 @@ jobs:
               BASE_VERSION_CODE=$((VERSION_X * 10000 + VERSION_Y * 100 + VERSION_Z))
               VERSION_CODE=$((BASE_VERSION_CODE + COMMITS_SINCE_TAG))
             fi
-          
+
             SHORT_SHA=$(git rev-parse --short HEAD)
             VERSION_NAME="$LATEST_TAG ($SHORT_SHA)"
-          
             echo "Version name: $VERSION_NAME"
             echo "Calculated versionCode: $VERSION_CODE"
           fi
-          
+
           # Update module.prop
           sed -i "s/^version=.*/version=$VERSION_NAME/" module.prop
           sed -i "s/^versionCode=.*/versionCode=$VERSION_CODE/" module.prop
-          
           echo "version_name=$VERSION_NAME" >> $GITHUB_OUTPUT
-          
           echo "Updated module.prop content:"
           cat module.prop
 
@@ -113,7 +112,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          
+
           # For manual dispatch, use inputs. For tag push, use defaults.
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             ARCH="${{ inputs.architecture }}"
@@ -135,17 +134,17 @@ jobs:
             API_URL="https://api.github.com/repos/$REPO/releases/tags/$TAG"
             echo "Fetching release $TAG from $REPO"
           fi
-          
+
           # Get release info
           RELEASE_JSON=$(curl -sL -H "Accept: application/vnd.github.v3+json" -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" "$API_URL")
-          
+
           # Define architecture patterns
           declare -A patterns
           patterns["arm64-v8a"]="android.*(arm64|aarch64);linux.*(arm64|aarch64|armv8)"
           patterns["armeabi-v7a"]="android.*(armv7|arm-v7);linux.*(armv7|arm-v7)"
           patterns["x86"]="android.*(x86);linux.*(x86|i386)"
           patterns["x86_64"]="android.*(x86_64|amd64);linux.*(x86_64|amd64)"
-          
+
           # Find asset URL
           ASSET_URL=""
           IFS=';' read -ra arch_patterns <<< "${patterns[$ARCH]}"
@@ -156,24 +155,24 @@ jobs:
               break
             fi
           done
-          
+
           if [[ -z "$ASSET_URL" ]]; then
             echo "No specific architecture match found, trying to find a generic binary."
             ASSET_URL=$(echo "$RELEASE_JSON" | jq -r ".assets[] | select(.name | test(\"$BIN_NAME\"; \"i\")) | .browser_download_url" | head -n1)
           fi
-          
+
           if [[ -z "$ASSET_URL" ]]; then
             echo "::error::Could not find a suitable binary for architecture $ARCH."
             exit 1
           fi
-          
+
           # Download and extract
           TMPDIR=$(mktemp -d)
           FNAME="$TMPDIR/asset"
-          
+
           echo "Downloading from $ASSET_URL..."
           curl -L -o "$FNAME" "$ASSET_URL"
-          
+
           echo "Downloaded file type:"
           file "$FNAME"
 
@@ -192,32 +191,41 @@ jobs:
             mv "$FNAME" "$TMPDIR/$BIN_NAME"
             BPATH="$TMPDIR/$BIN_NAME"
           fi
-          
+
           if [[ -z "$BPATH" ]]; then
             echo "::error::Could not find '$BIN_NAME' in the downloaded asset."
             exit 1
           fi
-          
+
           echo "Binary found at: $BPATH"
           mv "$BPATH" "./$BIN_NAME"
           chmod +x "./$BIN_NAME"
-          
+
           echo "Successfully placed binary at ./$BIN_NAME"
           rm -rf "$TMPDIR"
 
       - name: Set script permissions
         run: |
           chmod 755 ./*.sh
-
       - name: Package module
         id: package
-        run: |
+        run: >
           ZIP_NAME="Seisa-Module-${{ steps.versioning.outputs.version_name }}.zip"
           zip -r "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
           echo "zip_path=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
-
-      - name: Upload module artifact
+      - name: Upload module artifact (Dev Build)
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip_name }}
+          path: |
+            .
+            !.git
+            !.github
+            !*.zip
+      - name: Upload module artifact (Release)
+        if: github.ref_type == 'tag'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.package.outputs.zip_name }}
@@ -235,7 +243,6 @@ jobs:
         with:
           name: ${{ needs.build_and_package.outputs.zip_name }}
           path: .
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
