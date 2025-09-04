@@ -210,28 +210,20 @@ jobs:
       - name: Package module
         id: package
         run: |
-          ZIP_NAME="Seisa-Module-${{ steps.versioning.outputs.version_name }}.zip"
+          ZIP_NAME="${{ github.repository }}-${{ steps.versioning.outputs.version_name }}.zip"
           zip -r "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
           echo "zip_path=$ZIP_NAME" >> $GITHUB_OUTPUT
           echo "zip_name=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: Upload module artifact (Dev Build)
-        if: github.ref_type != 'tag'
+      - name: Upload module artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.package.outputs.zip_name }}
+          name: ${{ github.repository }}-${{ steps.versioning.outputs.version_name }}
           path: |
             .
             !.git
             !.github
             !*.zip
-
-      - name: Upload module artifact (Release)
-        if: github.ref_type == 'tag'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.package.outputs.zip_name }}
-          path: ${{ steps.package.outputs.zip_path }}
 
   release:
     runs-on: ubuntu-latest
