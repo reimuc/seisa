@@ -4,10 +4,10 @@
 # 🔥 start.rules.sh - 透明代理 iptables 规则管理脚本
 # ==============================================================================
 #
-# 管理并应用透明代理所需的 iptables 规则，支持 IPv4/IPv6、TPROXY、ipset 优化及动态提取配置。
+# 管理并应用透明代理所需的 iptables 规则, 支持 IPv4/IPv6、TPROXY、ipset 优化及动态提取配置
 # - 自动创建/清理自定义链与路由
 # - 动态提取 FakeIP 网段与出站服务器地址
-# - 支持 ipset 白名单，防止代理回环
+# - 支持 ipset 白名单, 防止代理回环
 # - 兼容多种内核与环境
 #
 # ==============================================================================
@@ -87,52 +87,13 @@ populate_outbound_ipsets() {
   # 解析配置文件中的出站服务器地址并添加到 ipset
   if [ -f "$CONFIG" ]; then
     # 提取所有 "server" 字段的值, 去重
-    # 这个 awk 脚本比之前的版本更健壮, 它处理 JSON 对象时不依赖于键的顺序。
-    awk '
-      BEGIN {
-        in_outbounds = 0
-        # For the current object
-        is_proxy = 0
-        server = ""
-      }
-      # Match start of "outbounds" array
-      /"outbounds":[ \t]*\[/ { in_outbounds = 1 }
-      # Match end of "outbounds" array
-      in_outbounds && /\]/ { in_outbounds = 0 }
-
-      # If we are inside outbounds array
-      in_outbounds {
-        # At the start of an object, reset vars
-        if (/\{/) {
-          is_proxy = 0
-          server = ""
-        }
-
-        # Check for proxy type
-        if (/"type":[ \t]*"(vmess|vless|trojan|ss|ssr|shadowsocks)"/) {
-          is_proxy = 1
-        }
-
-        # Check for server
-        if (/"server":/) {
-          # Extract server value
-          match($0, /"server":[ \t]*"([^"]+)"/, arr)
-          if (arr[1] != "") {
-            server = arr[1]
-          }
-        }
-
-        # At the end of an object, if it was a proxy, print server
-        if (/\}/) {
-          if (is_proxy && server != "") {
-            print server
-          }
-          # Reset for next object
-          is_proxy = 0
-          server = ""
-        }
-      }
-    ' "$CONFIG" | sort -u | while read -r host; do
+    # 这个 awk 脚本比之前的版本更健壮, 它处理 JSON 对象时不依赖于键的顺序
+    awk 'BEGIN{in_obj=has_server=has_uuid=has_password=0;server_val=""} \
+         /\{/ {in_obj++} \
+         /\}/ {if(in_obj>0){if(has_server&&(has_uuid||has_password))print server_val;has_server=has_uuid=has_password=0;server_val="";in_obj--}} \
+         /"server"[[:space:]]*:/ {if(match($0,/"server"[[:space:]]*:[[:space:]]*"([^"]+)"/,m)){has_server=1;server_val=m[1]}} \
+         /"uuid"[[:space:]]*:/ {has_uuid=1} \
+         /"password"[[:space:]]*:/ {has_password=1}' "$CONFIG" | sort -u | while read -r host; do
       log "🔍 正在处理出站服务器: $host"
       [ -z "$host" ] && continue
       # 使用 case 语句判断是 IP 还是域名, 这比 grep -E 更具可移植性
@@ -280,55 +241,91 @@ add_whitelists_and_rules() {
     fi
   fi
 
-  # 跳过白名单应用
-  if [ -n "$WHITELIST_APPS" ]; then
-    if command -v dumpsys >/dev/null 2>&1; then
-      log "📱 添加应用白名单规则..."
-      for app_pkg in $WHITELIST_APPS; do
-        uid=$(dumpsys package "$app_pkg" 2>/dev/null | grep 'userId=' | cut -d'=' -f2)
-        if [ -n "$uid" ]; then
-          log "✅ 将应用 '$app_pkg' (UID: $uid) 加入白名单。"
-          iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -m owner --uid-owner "$uid" -j RETURN
-          if [ "$IPV6" = "true" ]; then
-            ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -m owner --uid-owner "$uid" -j RETURN 2>/dev/null || true
+  # --- DNS 重定向规则 (关键修复) ---
+  log "🌐 正在添加 DNS 重定向规则..."
+  # 将 PREROUTING 链的 DNS 流量重定向到 TPROXY 端口
+  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
+  # 对于 OUTPUT 链, 我们只标记 DNS 数据包, 由策略路由处理, 因为 TPROXY 目标不适用于 OUTPUT 链
+  iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp --dport 53 -j MARK --set-mark "$MARK"
+  if [ "$IPV6" = "true" ]; then
+    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
+    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp --dport 53 -j MARK --set-mark "$MARK" 2>/dev/null || true
+  fi
+
+  # --- 应用代理规则 (OUTPUT 链) ---
+  # 假设 $PROXY_MODE, $WHITELIST_APPS, $BLACKLIST_APPS 在 common.sh 中定义
+  if command -v dumpsys >/dev/null 2>&1; then
+    # 白名单模式 (默认)
+    if [ "$PROXY_MODE" = "whitelist" ]; then
+      log "📱 应用白名单代理模式..."
+      if [ -n "$WHITELIST_APPS" ]; then
+        for app_pkg in $WHITELIST_APPS; do
+          uid=$(dumpsys package "$app_pkg" 2>/dev/null | grep 'userId=' | cut -d'=' -f2)
+          if [ -n "$uid" ]; then
+            log "⚪️ 将应用 '$app_pkg' (UID: $uid) 加入白名单 (代理)"
+            iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -m owner --uid-owner "$uid" -j MARK --set-mark "$MARK"
+            if [ "$IPV6" = "true" ]; then
+              ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -m owner --uid-owner "$uid" -j MARK --set-mark "$MARK" 2>/dev/null || true
+            fi
+          else
+            log "⚠️ [警告] 无法找到应用 '$app_pkg' 的 UID"
           fi
-        else
-          log "⚠️ [警告] 无法找到应用 '$app_pkg' 的 UID, 请检查包名是否正确。"
-        fi
-      done
+        done
+      else
+        log "ℹ️ 应用白名单为空, 除 DNS 外, 本机流量将不通过代理"
+      fi
+    # 黑名单模式
+    elif [ "$PROXY_MODE" = "blacklist" ]; then
+      log "📱 应用黑名单代理模式..."
+      if [ -n "$BLACKLIST_APPS" ]; then
+        for app_pkg in $BLACKLIST_APPS; do
+          uid=$(dumpsys package "$app_pkg" 2>/dev/null | grep 'userId=' | cut -d'=' -f2)
+          if [ -n "$uid" ]; then
+            log "⚫️ 将应用 '$app_pkg' (UID: $uid) 加入黑名单 (不代理)"
+            iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -m owner --uid-owner "$uid" -j RETURN
+            if [ "$IPV6" = "true" ]; then
+              ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -m owner --uid-owner "$uid" -j RETURN 2>/dev/null || true
+            fi
+          else
+            log "⚠️ [警告] 无法找到应用 '$app_pkg' 的 UID"
+          fi
+        done
+      fi
+      # 黑名单模式下, 其他所有流量都代理
+      iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p tcp -j MARK --set-mark "$MARK"
+      iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp -j MARK --set-mark "$MARK"
+      if [ "$IPV6" = "true" ]; then
+        ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p tcp -j MARK --set-mark "$MARK" 2>/dev/null || true
+        ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp -j MARK --set-mark "$MARK" 2>/dev/null || true
+      fi
+    # 全局模式
     else
-      log "⚠️ [警告] dumpsys 命令不可用, 无法处理应用白名单。"
+      log "🔥 应用全局代理模式..."
+      iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p tcp -j MARK --set-mark "$MARK"
+      iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp -j MARK --set-mark "$MARK"
+      if [ "$IPV6" = "true" ]; then
+        ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p tcp -j MARK --set-mark "$MARK" 2>/dev/null || true
+        ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp -j MARK --set-mark "$MARK" 2>/dev/null || true
+      fi
+    fi
+  else
+    log "⚠️ [警告] dumpsys 命令不可用, 无法处理应用代理规则将对本机所有流量应用代理"
+    iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p tcp -j MARK --set-mark "$MARK"
+    iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp -j MARK --set-mark "$MARK"
+    if [ "$IPV6" = "true" ]; then
+      ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p tcp -j MARK --set-mark "$MARK" 2>/dev/null || true
+      ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp -j MARK --set-mark "$MARK" 2>/dev/null || true
     fi
   fi
 
-  # --- DNS 重定向规则 (关键修复) ---
-  log "🌐 正在添加 DNS 重定向规则..."
-  # 将所有到标准 DNS 端口的 UDP 流量重定向到 TPROXY 端口
-  # 这是为了让代理核心能处理 DNS 查询, 对于透明代理至关重要
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
-  if [ "$IPV6" = "true" ]; then
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
-  fi
-
-  # --- 核心 TPROXY 规则 ---
+  # --- 核心 TPROXY 规则 (PREROUTING 链) ---
   log "🔥 正在添加核心 TPROXY 规则..."
   # PREROUTING 链: 转发 TCP/UDP 流量
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
+  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"
+  iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"
   if [ "$IPV6" = "true" ]; then
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
-  fi
-
-  # OUTPUT 链: 标记本机 TCP/UDP 流量, 但不使用 TPROXY
-  # TPROXY 目标不适用于 OUTPUT 链, 我们只标记数据包, 然后由策略路由处理
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p tcp -j MARK --set-mark "$MARK"
-  iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp -j MARK --set-mark "$MARK"
-  if [ "$IPV6" = "true" ]; then
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p tcp -j MARK --set-mark "$MARK" 2>/dev/null || true
-    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp -j MARK --set-mark "$MARK" 2>/dev/null || true
+    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p tcp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK" 2>/dev/null || true
+    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p udp -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK" 2>/dev/null || true
   fi
 
   # --- 应用规则链 ---
@@ -351,32 +348,32 @@ add_whitelists_and_rules() {
 }
 
 get_proxy_uid() {
-  # 获取代理二进制文件的 UID。
-  # 由于代理二进制文件不是标准的 Android 应用，因此它没有由系统分配的固定 UID。
-  # 让代理二进制文件以特定的、非 root 的 UID 运行，并在 'settings.conf' 中设置该 UID 是至关重要的。
-  # 例如，通过以下方式以 'shell' 用户 (UID 2000) 身份运行: su 2000 -c "..."
+  # 获取代理二进制文件的 UID
+  # 由于代理二进制文件不是标准的 Android 应用, 因此它没有由系统分配的固定 UID
+  # 让代理二进制文件以特定的、非 root 的 UID 运行, 并在 'settings.conf' 中设置该 UID 是至关重要的
+  # 例如, 通过以下方式以 'shell' 用户 (UID 2000) 身份运行: su 2000 -c "..."
 
-  # 1. 主要且推荐的方法：使用 settings.conf 中的 PROXY_UID。
+  # 1. 主要且推荐的方法：使用 settings.conf 中的 PROXY_UID
   if [ -n "$PROXY_UID" ]; then
-    log "ℹ️ 使用来自 settings.conf 的代理 UID '$PROXY_UID'。"
+    log "ℹ️ 使用来自 settings.conf 的代理 UID '$PROXY_UID'"
     return 0
   fi
 
-  # 2. 刷新时的备用方案：尝试从正在运行的进程中获取 UID。
-  # 如果在代理已激活时重新运行此脚本，这可能会起作用。
+  # 2. 刷新时的备用方案：尝试从正在运行的进程中获取 UID
+  # 如果在代理已激活时重新运行此脚本, 这可能会起作用
   # shellcheck disable=SC2009
   _pid=$(pidof "$BIN_NAME")
   if [ -n "$_pid" ]; then
     PROXY_UID=$(stat -c "%u" "/proc/$_pid")
-    log "⚠️ 从运行中的进程检测到代理 UID '$PROXY_UID'。请考虑在 settings.conf 中进行设置。"
+    log "⚠️ 从运行中的进程检测到代理 UID '$PROXY_UID'请考虑在 settings.conf 中进行设置"
     return
   fi
 
-  # 3. 严重失败。
-  log "❌ 致命错误：无法确定代理 UID。"
-  log "➡️ 请在设置中将 PROXY_UID 设置为代理二进制文件 ($BIN_NAME) 运行所使用的 UID。"
+  # 3. 严重失败
+  log "❌ 致命错误：无法确定代理 UID"
+  log "➡️ 请在设置中将 PROXY_UID 设置为代理二进制文件 ($BIN_NAME) 运行所使用的 UID"
   log "➡️ 例如：PROXY_UID=2000 (对于 shell 用户)"
-  # 没有 UID 就无法继续，因为它会造成代理循环。
+  # 没有 UID 就无法继续, 因为它会造成代理循环
   PROXY_UID="" # 确保其为空
 }
 
@@ -412,13 +409,13 @@ do_stop() {
     ip6tables -w 100 -t mangle -X "${CHAIN_NAME_OUT}6" 2>/dev/null || true
   fi
 
-  # 删除策略路由规则和路由表项
+  # 删除策略路由规则和清空路由表
   ip rule del fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
-  ip route del local 0.0.0.0/0 dev lo table "$ROUTE_TABLE" 2>/dev/null || true
+  ip route flush table "$ROUTE_TABLE" 2>/dev/null || true
 
   if [ "$IPV6" = "true" ] && ip -6 route show >/dev/null 2>&1; then
     ip -6 rule del fwmark "$MARK" lookup "$ROUTE_TABLE" 2>/dev/null || true
-    ip -6 route del local ::/0 dev lo table "$ROUTE_TABLE" 2>/dev/null || true
+    ip -6 route flush table "$ROUTE_TABLE" 2>/dev/null || true
   fi
 
   # 清空 ipset

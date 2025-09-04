@@ -35,6 +35,7 @@ LOCK_FILE=${LOCK_FILE:-"$PERSIST_DIR/.service_lock"}       # 服务锁文件路�
 
 # 定义透明代理 (TProxy) 所需的网络参数
 IPV6=${IPV6:-false}                                       # 是否启用ipv6
+PROXY_MODE=${PROXY_MODE:-""}                              # whitelist | blacklist | ""
 TPROXY_PORT=${TPROXY_PORT:-1536}                          # TProxy 监听端口
 CHAIN_NAME=${CHAIN_NAME:-"FIREFLY"}                       # 链名, 用于 iptables 规则
 MARK=${MARK:-0x1}                                         # fwmark 标记, 用于策略路由
@@ -123,12 +124,15 @@ BIN_LOG=${BIN_LOG:-"$PERSIST_DIR/$BIN_NAME.log"}          # 核心日志文件�
 # 2. 使用 PROXY_PACKAGE_NAME 从包管理器中获取
 PROXY_UID=${PROXY_UID:-$(read_setting "PROXY_UID")}
 
-# --- 应用白名单 ---
+# --- 应用黑白名单 ---
 
-# 应用白名单, 列出的应用包名将绕过代理
 # 多个包名请用空格隔开
 # 示例: WHITELIST_APPS="com.android.vending com.google.android.gms"
+# 应用白名单, 列出的应用包名将绕过代理
 WHITELIST_APPS=${WHITELIST_APPS:-$(read_setting "WHITELIST_APPS")}
+
+# 应用黑名单, 列出的应用包名将被代理
+BLACKLIST_APPS=${BLACKLIST_APPS:-$(read_setting "BLACKLIST_APPS")}
 
 # --- 系统 PATH 扩展 ---
 
