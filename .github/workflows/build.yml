@@ -1,4 +1,4 @@
-name: Build
+name: '🚀 Build'
 
 on:
   push:
@@ -47,12 +47,12 @@ jobs:
       module_name: ${{ steps.package.outputs.module_name }}
       zip_path: ${{ steps.package.outputs.zip_path }}
     steps:
-      - name: Checkout repository
+      - name: '📥 Checkout repository'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Update version info
+      - name: '📝 Update version info'
         id: versioning
         shell: bash
         run: |
@@ -109,7 +109,7 @@ jobs:
           echo "Updated module.prop content:"
           cat module.prop
 
-      - name: Download agent core binary
+      - name: '⬇️ Download agent core binary'
         if: ${{ (github.event_name == 'workflow_dispatch' && inputs.include_singbox == 'true') || github.event_name != 'workflow_dispatch' }}
         id: download-binary
         shell: bash
@@ -207,7 +207,7 @@ jobs:
           echo "Successfully placed binary at ./$BIN_NAME"
           rm -rf "$TMPDIR"
 
-      - name: Package module
+      - name: '📦 Package module'
         id: package
         run: |
           GITHUB_REPO=${{ github.repository }}
@@ -217,7 +217,7 @@ jobs:
           zip -r "$ZIP_NAME" . -x ".git/*" ".github/*" "*.zip"
           echo "zip_path=$ZIP_NAME" >> $GITHUB_OUTPUT
 
-      - name: Upload module artifact
+      - name: '⬆️ Upload module artifact'
         if: github.ref_type != 'tag'
         uses: actions/upload-artifact@v4
         with:
@@ -228,7 +228,7 @@ jobs:
             !.github
             !*.zip
 
-      - name: Create GitHub Release
+      - name: '🎉 Create GitHub Release'
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         env:
