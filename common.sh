@@ -96,7 +96,7 @@ if type ui_print >/dev/null 2>&1; then IS_INSTALLER_ENV=1; else IS_INSTALLER_ENV
 # log_safe <msg> : 安全地记录日志, 兼容安装环境和普通环境
 log_safe() {
   msg="$*"; ts="[$(date +'%T')]"
-  if [ "$IS_INSTALLER_ENV" -eq 1 ]; then ui_print "$ts $msg"; else echo "$ts $msg"; fi
+  if [ "$IS_INSTALLER_ENV" = "1" ]; then ui_print "$ts $msg"; else echo "$ts $msg"; fi
   if [ -n "$LOGFILE" ]; then 
     mkdir -p "$(dirname -- "$LOGFILE")" 2>/dev/null
     printf '%s %s\n' "$ts" "$msg" >> "$LOGFILE"
@@ -106,7 +106,7 @@ log_safe() {
 # abort_safe <msg> : 安全地终止脚本, 兼容安装环境和普通环境
 abort_safe() {
   msg="$*"; ts="[$(date +'%T')]"
-  if [ "$IS_INSTALLER_ENV" -eq 1 ] && type abort >/dev/null 2>&1; then
+  if [ "$IS_INSTALLER_ENV" = "1" ] && type abort >/dev/null 2>&1; then
     abort "$ts [ABORT]: $msg"
   else
     echo "$ts [ABORT]: $msg" >&2

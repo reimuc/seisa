@@ -249,7 +249,7 @@ case "$1" in
     log_safe "🛑 开始执行清理..."
     cleanup
     rm -f "$FLAG" 2>/dev/null || true
-    update_desc "⛔"
+    update_desc
     log_safe "✅ 服务已停止"
     exit 0
     ;;
@@ -294,7 +294,7 @@ case "$1" in
 
     # 6. 创建服务运行标识
     touch "$FLAG" 2>/dev/null || true
-    update_desc "✅"
+    update_desc
 
     log_safe "✅ 服务启动完成"
     ;;

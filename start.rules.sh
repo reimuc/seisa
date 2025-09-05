@@ -141,7 +141,7 @@ populate_outbound_ipsets() {
 add_to_ipset() {
   version="$1" ip="$2"
   ipset_name="" chain_name=""
-  
+
   if [ "$version" = "v4" ]; then
     ipset_name="$IPSET_V4"
     chain_name="$CHAIN_NAME_PRE"
@@ -210,11 +210,11 @@ add_fakeip_rules() {
   # shellcheck disable=SC2046
   set -- $(extract_fakeip_ranges)
   fake4="$1" fake6="$2"
-  
+
   if [ -n "$fake4" ]; then
     iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -d "$fake4" -j RETURN
   fi
-  if [ -n "$fake6" ] && [ "$IPV6_SUPPORT" = "1" ]; then
+  if [ "$IPV6_SUPPORT" = "1" ] && [ -n "$fake6" ]; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -d "$fake6" -j RETURN 2>/dev/null || true
   fi
 }
@@ -249,9 +249,11 @@ add_dns_rules() {
   log_safe "🪩 正在添加 DNS 重定向规则..."
   iptables -w 100 -t mangle -A "$CHAIN_NAME_PRE" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK"
   iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p udp --dport 53 -j MARK --set-mark "$MARK"
+  iptables -w 100 -t mangle -A "$CHAIN_NAME_OUT" -p tcp --dport 53 -j MARK --set-mark "$MARK"
   if [ "$IPV6_SUPPORT" = "1" ]; then
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME_PRE}6" -p udp --dport 53 -j TPROXY --on-port "$TPROXY_PORT" --tproxy-mark "$MARK"/"$MARK" 2>/dev/null || true
     ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p udp --dport 53 -j MARK --set-mark "$MARK" 2>/dev/null || true
+    ip6tables -w 100 -t mangle -A "${CHAIN_NAME_OUT}6" -p tcp --dport 53 -j MARK --set-mark "$MARK" 2>/dev/null || true
   fi
 }
 
@@ -337,25 +339,27 @@ add_core_tproxy_rules() {
 
 apply_rule_chains() {
   log_safe "✅ 正在应用规则链..."
-  iptables -w 100 -t mangle -A PREROUTING -j "$CHAIN_NAME_PRE"
+
+  if ! iptables -t mangle -C PREROUTING -j "$CHAIN_NAME_PRE" 2>/dev/null; then
+    iptables -w 100 -t mangle -A PREROUTING -j "$CHAIN_NAME_PRE"
+  fi
 
   if ! iptables -t mangle -C OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null; then
-    if ! iptables -w 100 -t mangle -A OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null; then
-      if ! iptables -w 100 -t mangle -I connmark_mangle_OUTPUT 1 -j "$CHAIN_NAME_OUT" 2>/dev/null; then
-        if ! iptables -w 100 -t mangle -I qcom_NWMGR 1 -j "$CHAIN_NAME_OUT" 2>/dev/null; then
-          log_safe "❌ 无法挂接 OUTPUT→$CHAIN_NAME_OUT"
-          return 1
-        fi
-      fi
-    fi
+    iptables -w 100 -t mangle -A OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null \
+    || iptables -w 100 -t mangle -I connmark_mangle_OUTPUT 1 -j "$CHAIN_NAME_OUT" 2>/dev/null \
+    || iptables -w 100 -t mangle -I qcom_NWMGR 1 -j "$CHAIN_NAME_OUT" 2>/dev/null \
+    || { log_safe "❌ 无法挂接 OUTPUT→$CHAIN_NAME_OUT"; return 1; }
   fi
 
   if [ "$IPV6_SUPPORT" = "1" ]; then
-    if ! ip6tables-save -t mangle | grep -q " -A PREROUTING -j ${CHAIN_NAME_PRE}6"; then
+    if ! ip6tables -t mangle -C PREROUTING -j "${CHAIN_NAME_PRE}6" 2>/dev/null; then
       ip6tables -w 100 -t mangle -A PREROUTING -j "${CHAIN_NAME_PRE}6"
     fi
-    if ! ip6tables-save -t mangle | grep -q " -A OUTPUT -j ${CHAIN_NAME_OUT}6"; then
-      ip6tables -w 100 -t mangle -A OUTPUT -j "${CHAIN_NAME_OUT}6"
+    if ! ip6tables -t mangle -C OUTPUT -j "${CHAIN_NAME_OUT}6" 2>/dev/null; then
+      ip6tables -w 100 -t mangle -A OUTPUT -j "${CHAIN_NAME_OUT}6" 2>/dev/null \
+      || ip6tables -w 100 -t mangle -I connmark_mangle_OUTPUT 1 -j "${CHAIN_NAME_OUT}6" 2>/dev/null \
+      || ip6tables -w 100 -t mangle -I qcom_NWMGR 1 -j "${CHAIN_NAME_OUT}6" 2>/dev/null \
+      || { log_safe "❌ 无法挂接 OUTPUT→${CHAIN_NAME_OUT}6"; return 1; }
     fi
   fi
 }
@@ -374,18 +378,28 @@ do_start() {
 
 do_stop() {
   log_safe "🛑 正在清除防火墙规则..."
-  
+
   # 清理 iptables 规则
-  iptables -w 100 -t mangle -D PREROUTING -j "$CHAIN_NAME_PRE" 2>/dev/null || true
-  iptables -w 100 -t mangle -D OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null || true
+  while iptables -t mangle -C PREROUTING -j "$CHAIN_NAME_PRE" 2>/dev/null; do
+    iptables -w 100 -t mangle -D PREROUTING -j "$CHAIN_NAME_PRE" 2>/dev/null || true
+  done
+  while iptables -t mangle -C OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null; do
+    iptables -w 100 -t mangle -D OUTPUT -j "$CHAIN_NAME_OUT" 2>/dev/null || true
+  done
+
   iptables -w 100 -t mangle -F "$CHAIN_NAME_PRE" 2>/dev/null || true
   iptables -w 100 -t mangle -X "$CHAIN_NAME_PRE" 2>/dev/null || true
   iptables -w 100 -t mangle -F "$CHAIN_NAME_OUT" 2>/dev/null || true
   iptables -w 100 -t mangle -X "$CHAIN_NAME_OUT" 2>/dev/null || true
 
   if [ "$IPV6_SUPPORT" = "1" ]; then
-    ip6tables -w 100 -t mangle -D PREROUTING -j "${CHAIN_NAME_PRE}6" 2>/dev/null || true
-    ip6tables -w 100 -t mangle -D OUTPUT -j "${CHAIN_NAME_OUT}6" 2>/dev/null || true
+    while ip6tables -t mangle -C PREROUTING -j "${CHAIN_NAME_PRE}6" 2>/dev/null; do
+      ip6tables -w 100 -t mangle -D PREROUTING -j "${CHAIN_NAME_PRE}6" 2>/dev/null || true
+    done
+    while ip6tables -t mangle -C OUTPUT -j "${CHAIN_NAME_OUT}6" 2>/dev/null; do
+      ip6tables -w 100 -t mangle -D OUTPUT -j "${CHAIN_NAME_OUT}6" 2>/dev/null || true
+    done
+
     ip6tables -w 100 -t mangle -F "${CHAIN_NAME_PRE}6" 2>/dev/null || true
     ip6tables -w 100 -t mangle -X "${CHAIN_NAME_PRE}6" 2>/dev/null || true
     ip6tables -w 100 -t mangle -F "${CHAIN_NAME_OUT}6" 2>/dev/null || true
