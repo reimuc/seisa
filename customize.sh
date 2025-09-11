@@ -28,7 +28,7 @@ if [ -d "/data/adb/modules/$MODID" ]; then
     log_safe "⏹️ 停止 $(basename "$SERVICE")..."
     sh "$SERVICE" stop >/dev/null 2>&1 || log_safe "❗ 服务可能未完全停止"
   fi
-  
+
   # 使用 pkill 终止残留进程，更可靠
   if command -v pkill >/dev/null 2>&1; then
     log_safe "🔍 正在使用 pkill 终止残留的 '$BIN_NAME' 进程..."

@@ -2,14 +2,14 @@
 # =====================================================================
 # ⬇️ update-bin.sh - 核心程序自动更新脚本
 # ---------------------------------------------------------------------
-# 自动下载并更新代理核心程序，支持多架构和自定义参数
+# 自动下载并更新代理核心程序, 支持多架构和自定义参数
 # =====================================================================
 
 set -e
 trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
-BIN_REPO="$1"       # GitHub 仓库名，如 user/project
-RELEASE_TAG="$2"    # 版本标签，如 v1.0.0 或 latest
+BIN_REPO="$1"       # GitHub 仓库名, 如 user/project
+RELEASE_TAG="$2"    # 版本标签, 如 v1.0.0 或 latest
 
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
@@ -28,7 +28,7 @@ case $(getprop ro.product.cpu.abi) in
   armeabi-v7a) ARCHITECTURE="android-armv7" ;;
   x86_64) ARCHITECTURE="android-amd64" ;;
   x86) ARCHITECTURE="android-386" ;;
-  *) ARCHITECTURE="" ; log_safe "🤔 未知CPU架构，使用通用匹配" ;;
+  *) ARCHITECTURE="" ; log_safe "🤔 未知CPU架构, 使用通用匹配" ;;
 esac
 log_safe "💻 检测到 CPU 架构: ${ARCHITECTURE:-未知}"
 
@@ -42,7 +42,7 @@ retry_curl() {
     fi
     count=$((count + 1))
     [ "$count" -ge "$MAX_RETRIES" ] && { log_safe "❌ 下载失败: $url"; return 1; }
-    log_safe "⏳ 下载失败，$RETRY_DELAY 秒后重试 ($count/$MAX_RETRIES)..."
+    log_safe "⏳ 下载失败, $RETRY_DELAY 秒后重试 ($count/$MAX_RETRIES)..."
     sleep "$RETRY_DELAY"
   done
 }
@@ -80,18 +80,18 @@ log_safe "📥 下载资源文件..."
 retry_curl "$ASSET_URL" "$FNAME" || { rm -rf "$TMPDIR"; exit 1; }
 
 # 解压或移动
-log_safe "📦 下载完成，分析文件类型..."
+log_safe "📦 下载完成, 分析文件类型..."
 BPATH=""
 if file "$FNAME" | grep -qi 'gzip compressed data'; then
-  log_safe "🗜️ tar.gz 压缩包，解压中..."
+  log_safe "🗜️ tar.gz 压缩包, 解压中..."
   tar -xzf "$FNAME" -C "$TMPDIR"
   BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n 1)
 elif file "$FNAME" | grep -qi 'Zip archive data'; then
-  log_safe "🗜️ zip 压缩包，解压中..."
+  log_safe "🗜️ zip 压缩包, 解压中..."
   unzip -o "$FNAME" -d "$TMPDIR" >/dev/null 2>&1
   BPATH=$(find "$TMPDIR" -type f -iname "$BIN_NAME" | head -n 1)
 else
-  log_safe "🔨 裸二进制文件，移动中..."
+  log_safe "🔨 裸二进制文件, 移动中..."
   mv "$FNAME" "$TMPDIR/$BIN_NAME"
   BPATH="$TMPDIR/$BIN_NAME"
 fi
@@ -100,7 +100,7 @@ fi
 
 # 验证与安装
 chmod 755 "$BPATH"
-VER=$("$BPATH" -v 2>/dev/null || "$BPATH" version 2>/dev/null || true)
+VER=$("$BPATH" version 2>/dev/null | awk '/version/ {sub(/.*version /, ""); sub(/^v/, ""); print $1}')
 [ -n "$VER" ] && log_safe "ℹ️ 下载 $BIN_NAME 版本信息: $VER"
 
 if [ -f "$BIN_PATH" ]; then

@@ -14,21 +14,12 @@ MODDIR=$(dirname "$0")
 log_safe "❤️=== [action] ===❤️"
 log_safe "🎬 正在切换服务状态..."
 
-if [ ! -x "$SERVICE" ]; then
-  log_safe "❌ 服务脚本 $(basename "$SERVICE") 不可执行，操作中止"
-  exit 1
-fi
+[ -x "$SERVICE" ] || abort_safe "❌ 服务 $(basename "$SERVICE") 不可执行, 操作中止"
 
 if [ -f "$FLAG" ]; then
-  log_safe "⛔ 服务已运行，正在停止..."
-  if ! sh "$SERVICE" stop >/dev/null 2>&1; then
-    log_safe "❌ 服务停止失败"
-    exit 1
-  fi
+  log_safe "⛔ 服务已运行, 正在停止..."
+  $SERVICE stop >/dev/null 2>&1 || abort_safe "❌ 服务 $(basename "$SERVICE") 停止失败"
 else
-  log_safe "🚀 服务未运行，正在启动..."
-  if ! sh "$SERVICE" >/dev/null 2>&1; then
-    log_safe "❌ 服务启动失败"
-    exit 1
-  fi
+  log_safe "🚀 服务未运行, 正在启动..."
+  $SERVICE >/dev/null 2>&1 || log_safe "❌ 服务 $(basename "$SERVICE") 启动失败"
 fi
