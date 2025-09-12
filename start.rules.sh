@@ -355,10 +355,10 @@ remove_tproxy_rules() {
   if [ -n "$TPROXY_USER" ]; then
     if [ "$ip_cmd" = "iptables" ]; then
       $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
-      $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT 2>/dev/null || true
     else
-      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m udp --dport "$TPROXY_PORT" -j REJECT
-      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT 2>/dev/null || true
     fi
   fi
 
