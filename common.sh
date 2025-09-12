@@ -203,11 +203,9 @@ resolve_user_group() {
 
   if [ -n "$group" ]; then
     case "$group" in
-      *[!0-9]*) gid=$(getent group "$group" | cut -d: -f3) ;;
+      *[!0-9]*) gid=$(id -g "$user" 2>/dev/null) ;;
       *) gid=$group ;;
     esac
-  else
-    gid=$(id -g "$user" 2>/dev/null)
   fi
 
   echo "$uid" "$gid"

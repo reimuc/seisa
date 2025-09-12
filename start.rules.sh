@@ -14,8 +14,8 @@ MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
 # --- 全局变量定义 ---
-MARK_ID=${MARK_ID:-0x1}
-TABLE_ID=${TABLE_ID:-100}
+MARK_ID=${MARK_ID:-"16777216/16777216"}
+TABLE_ID=${TABLE_ID:-"2024"}
 CHAIN_NAME=${CHAIN_NAME:-FIREFLY}
 CHAIN_PRE=${CHAIN_PRE:-"${CHAIN_NAME}_PRE"}
 CHAIN_OUT=${CHAIN_OUT:-"${CHAIN_NAME}_OUT"}
@@ -56,12 +56,12 @@ detect_tproxy_params() {
 setup_routes() {
   log_safe "🗺️ 正在设置策略路由..."
 
-  ip route add local default dev lo table "$TABLE_ID"
-  ip rule add fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID"
+  ip route add local default dev lo table "$TABLE_ID" 2>/dev/null || true
+  ip rule add fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID" 2>/dev/null || true
 
   if [ "$IPV6_SUPPORT" = "1" ]; then
-    ip -6 route add local default dev lo table "$TABLE_ID"
-    ip -6 rule add fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID"
+    ip -6 route add local default dev lo table "$TABLE_ID" 2>/dev/null || true
+    ip -6 rule add fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID" 2>/dev/null || true
   fi
 }
 
@@ -69,27 +69,27 @@ unset_routes() {
   log_safe "🗺️ 正在清除策略路由..."
 
   if [ "$IPV6_SUPPORT" = "1" ]; then
-    ip -6 rule del fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID"
-    ip -6 route flush table "$TABLE_ID"
+    ip -6 rule del fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID" 2>/dev/null || true
+    ip -6 route flush table "$TABLE_ID" 2>/dev/null || true
   fi
 
-  ip rule del fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID"
-  ip route flush table "$TABLE_ID"
+  ip rule del fwmark "$MARK_ID" lookup "$TABLE_ID" pref "$TABLE_ID" 2>/dev/null || true
+  ip route flush table "$TABLE_ID" 2>/dev/null || true
 }
 
 # --- tproxy 规则函数 ---
 add_tproxy_rules() {
   ip_cmd=${1:-iptables}
 
-  log_safe "⛓️‍💥 正在添加 $ip_cmd 规则..."
+  log_safe "🚦 正在添加 $ip_cmd 规则..."
 
   log_safe "🔗 创建自定义 LAN 链..."
-  $ip_cmd -w 100 -t mangle -N "$CHAIN_LAN"
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_LAN"
+  $ip_cmd -w 100 -t mangle -N "$CHAIN_LAN" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_LAN" 2>/dev/null || true
 
   log_safe "🔗 创建自定义 PREROUTING 链..."
-  $ip_cmd -w 100 -t mangle -N "$CHAIN_PRE"
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_PRE"
+  $ip_cmd -w 100 -t mangle -N "$CHAIN_PRE" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_PRE" 2>/dev/null || true
 
   log_safe "🔌 标记透明代理接管流量..."
   $ip_cmd -w 100 -t mangle -A "$CHAIN_PRE" -p tcp -m socket --transparent -j MARK --set-xmark "$MARK_ID"
@@ -135,8 +135,8 @@ add_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -I PREROUTING -j "$CHAIN_PRE"
 
   log_safe "🔗 创建自定义 OUTPUT 链..."
-  $ip_cmd -w 100 -t mangle -N "$CHAIN_OUT"
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT"
+  $ip_cmd -w 100 -t mangle -N "$CHAIN_OUT" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT" 2>/dev/null || true
 
   if [ -n "$USER_ID" ]; then
     log_safe "👤 放行 $USER_ID 服务本身流量..."
@@ -178,8 +178,8 @@ add_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -I OUTPUT -j "$CHAIN_OUT"
 
   log_safe "🔗 创建及应用 DIVERT 链..."
-  $ip_cmd -w 100 -t mangle -N DIVERT
-  $ip_cmd -w 100 -t mangle -F DIVERT
+  $ip_cmd -w 100 -t mangle -N DIVERT 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -F DIVERT 2>/dev/null || true
   $ip_cmd -w 100 -t mangle -A DIVERT -j MARK --set-xmark "$MARK_ID"
   $ip_cmd -w 100 -t mangle -A DIVERT -j ACCEPT
   $ip_cmd -w 100 -t mangle -I PREROUTING -p tcp -m socket -j DIVERT
@@ -203,13 +203,13 @@ add_tproxy_rules() {
     if [ "$BIN_NAME" = "mihomo" ] || [ "$BIN_NAME" = "hysteria" ] || [ "$BIN_NAME" = "clash" ]; then
       log_safe "🚀 开启 clash 全局 DNS 模式..."
 
-      $ip_cmd -w 100 -t nat -N CLASH_DNS_PRE
-      $ip_cmd -w 100 -t nat -F CLASH_DNS_PRE
+      $ip_cmd -w 100 -t nat -N CLASH_DNS_PRE 2>/dev/null || true
+      $ip_cmd -w 100 -t nat -F CLASH_DNS_PRE 2>/dev/null || true
       $ip_cmd -w 100 -t nat -A CLASH_DNS_PRE -p udp --dport 53 -j REDIRECT --to-ports 1053
       $ip_cmd -w 100 -t nat -I PREROUTING -j CLASH_DNS_PRE
 
-      $ip_cmd -w 100 -t nat -N CLASH_DNS_OUT
-      $ip_cmd -w 100 -t nat -F CLASH_DNS_OUT
+      $ip_cmd -w 100 -t nat -N CLASH_DNS_OUT 2>/dev/null || true
+      $ip_cmd -w 100 -t nat -F CLASH_DNS_OUT 2>/dev/null || true
       $ip_cmd -w 100 -t nat -A CLASH_DNS_OUT -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -j RETURN
       $ip_cmd -w 100 -t nat -A CLASH_DNS_OUT -p udp --dport 53 -j REDIRECT --to-ports 1053
       $ip_cmd -w 100 -t nat -I OUTPUT -j CLASH_DNS_OUT
@@ -335,22 +335,22 @@ remove_tproxy_rules() {
     $ip_cmd -w 100 -D OUTPUT -p tcp --dport 853 -j DROP
   fi
 
-  $ip_cmd -w 100 -t mangle -D OUTPUT -j "$CHAIN_OUT"
+  $ip_cmd -w 100 -t mangle -D OUTPUT -j "$CHAIN_OUT" 2>/dev/null || true
 
-  $ip_cmd -w 100 -t mangle -D PREROUTING -p tcp -m socket -j DIVERT
-  $ip_cmd -w 100 -t mangle -D PREROUTING -j "$CHAIN_PRE"
+  $ip_cmd -w 100 -t mangle -D PREROUTING -p tcp -m socket -j DIVERT 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -D PREROUTING -j "$CHAIN_PRE" 2>/dev/null || true
 
-  $ip_cmd -w 100 -t mangle -F DIVERT
-  $ip_cmd -w 100 -t mangle -X DIVERT
+  $ip_cmd -w 100 -t mangle -F DIVERT 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -X DIVERT 2>/dev/null || true
 
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT"
-  $ip_cmd -w 100 -t mangle -X "$CHAIN_OUT"
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -X "$CHAIN_OUT" 2>/dev/null || true
 
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_PRE"
-  $ip_cmd -w 100 -t mangle -X "$CHAIN_PRE"
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_PRE" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -X "$CHAIN_PRE" 2>/dev/null || true
 
-  $ip_cmd -w 100 -t mangle -F "$CHAIN_LAN"
-  $ip_cmd -w 100 -t mangle -X "$CHAIN_LAN"
+  $ip_cmd -w 100 -t mangle -F "$CHAIN_LAN" 2>/dev/null || true
+  $ip_cmd -w 100 -t mangle -X "$CHAIN_LAN" 2>/dev/null || true
 
   if [ -n "$USER_ID" ]; then
     if [ "$ip_cmd" = "iptables" ]; then
@@ -363,14 +363,14 @@ remove_tproxy_rules() {
   fi
 
   if $ip_cmd -t nat -nL >/dev/null 2>&1; then
-    $ip_cmd -w 100 -t nat -D OUTPUT -j CLASH_DNS_OUT
-    $ip_cmd -w 100 -t nat -D PREROUTING -j CLASH_DNS_PRE
+    $ip_cmd -w 100 -t nat -D OUTPUT -j CLASH_DNS_OUT 2>/dev/null || true
+    $ip_cmd -w 100 -t nat -D PREROUTING -j CLASH_DNS_PRE 2>/dev/null || true
 
-    $ip_cmd -w 100 -t nat -F CLASH_DNS_OUT
-    $ip_cmd -w 100 -t nat -X CLASH_DNS_OUT
+    $ip_cmd -w 100 -t nat -F CLASH_DNS_OUT 2>/dev/null || true
+    $ip_cmd -w 100 -t nat -X CLASH_DNS_OUT 2>/dev/null || true
 
-    $ip_cmd -w 100 -t nat -F CLASH_DNS_PRE
-    $ip_cmd -w 100 -t nat -X CLASH_DNS_PRE
+    $ip_cmd -w 100 -t nat -F CLASH_DNS_PRE 2>/dev/null || true
+    $ip_cmd -w 100 -t nat -X CLASH_DNS_PRE 2>/dev/null || true
 
     if [ "$ip_cmd" = "iptables" ]; then
       $ip_cmd -w 100 -t nat -D OUTPUT -d "$FAIR4" -p icmp -j DNAT --to-destination 127.0.0.1
