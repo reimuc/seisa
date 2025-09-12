@@ -143,6 +143,13 @@ add_tproxy_rules() {
     $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -j RETURN
   fi
 
+  log_safe "👻 强制代理 FakeIP 流量..."
+  if [ "$ip_cmd" = "iptables" ] && [ -n "$FAIR4" ]; then
+    $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -d "$FAIR4" -j MARK --set-xmark "$MARK_ID"
+  elif [ "$ip_cmd" = "ip6tables" ] && [ -n "$FAIR6" ]; then
+    $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -d "$FAIR6" -j MARK --set-xmark "$MARK_ID"
+  fi
+
   if [ "$IGNORE_LIST" != "" ]; then
     log_safe "🚫 放行忽略列表接口流量..."
     for ignore in $IGNORE_LIST; do
@@ -302,33 +309,10 @@ add_whitelist_rules() {
   $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -p udp -m owner --uid-owner 1052 -j MARK --set-xmark "$MARK_ID"
 }
 
-# --- 系统关键服务 ---
-add_system_rules() {
-  log_safe "🔧 添加系统服务白名单..."
-
-  # DHCP 服务
-  iptables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --sport 68 --dport 67 -j RETURN
-  iptables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --sport 67 --dport 68 -j RETURN
-  # NTP 服务
-  iptables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --dport 123 -j RETURN
-  # 多播地址
-  iptables -w 100 -t mangle -A "$CHAIN_OUT" -d 224.0.0.0/4 -j RETURN
-
-  if [ "$IPV6_SUPPORT" = "1" ]; then
-    # IPv6 DHCP
-    ip6tables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --sport 546 --dport 547 -j RETURN
-    ip6tables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --sport 547 --dport 546 -j RETURN
-    # IPv6 NTP
-    ip6tables -w 100 -t mangle -A "$CHAIN_OUT" -p udp --dport 123 -j RETURN
-    # IPv6 多播地址
-    ip6tables -w 100 -t mangle -A "$CHAIN_OUT" -d ff00::/8 -j RETURN
-  fi
-}
-
 remove_tproxy_rules() {
   ip_cmd=${1:-iptables}
 
-  log_safe "正在删除 $ip_cmd 规则..."
+  log_safe "🧹 正在删除 $ip_cmd 规则..."
 
   if [ "$ip_cmd" = "ip6tables" ]; then
     $ip_cmd -w 100 -D OUTPUT -p udp --dport 53 -j DROP
@@ -391,7 +375,6 @@ do_start() {
   if [ "$IPV6_SUPPORT" = "1" ]; then
     add_tproxy_rules ip6tables
   fi
-  add_system_rules
   log_safe "✅ 防火墙规则已应用"
 }
 
