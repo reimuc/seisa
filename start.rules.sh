@@ -139,9 +139,13 @@ add_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT" 2>/dev/null || true
 
   if [ -n "$TPROXY_USER" ]; then
-    log_safe "👤 放行 $TPROXY_USER 服务本身流量..."
-    $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -j RETURN
+    log_safe "👤 放行 $TPROXY_USER($USER_ID:$GROUP_ID) 本身流量..."
+    $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -m owner --uid-owner "$USER_ID" -j RETURN
   fi
+
+  log_safe "🔒 放行 DoT/DoQ DNS 查询流量 (端口 853)..."
+  $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -p udp --dport 853 -j RETURN
+  $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -p tcp --dport 853 -j RETURN
 
   log_safe "👻 强制代理 FakeIP 流量..."
   if [ "$ip_cmd" = "iptables" ] && [ -n "$FAIR4" ]; then
@@ -194,16 +198,10 @@ add_tproxy_rules() {
   if [ -n "$TPROXY_USER" ]; then
     log_safe "👤 阻止本地服务访问 tproxy 端口..."
     if [ "$ip_cmd" = "iptables" ]; then
-      $ip_cmd -w 100 -A OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -A OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
     else
-      $ip_cmd -w 100 -A OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -A OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
     fi
-  fi
-
-  if [ "$ip_cmd" = "ip6tables" ]; then
-    log_safe "🗑️ 丢弃 IPV6 流量的 DND请求..."
-    $ip_cmd -w 100 -A OUTPUT -p udp --dport 53 -j DROP
-    $ip_cmd -w 100 -A OUTPUT -p tcp --dport 853 -j DROP
   fi
 
   if $ip_cmd -t nat -nL >/dev/null 2>&1; then
@@ -217,7 +215,7 @@ add_tproxy_rules() {
 
       $ip_cmd -w 100 -t nat -N CLASH_DNS_OUT 2>/dev/null || true
       $ip_cmd -w 100 -t nat -F CLASH_DNS_OUT 2>/dev/null || true
-      $ip_cmd -w 100 -t nat -A CLASH_DNS_OUT -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -j RETURN
+      $ip_cmd -w 100 -t nat -A CLASH_DNS_OUT -m owner --uid-owner "$USER_ID" -j RETURN
       $ip_cmd -w 100 -t nat -A CLASH_DNS_OUT -p udp --dport 53 -j REDIRECT --to-ports 1053
       $ip_cmd -w 100 -t nat -I OUTPUT -j CLASH_DNS_OUT
     fi
@@ -314,11 +312,6 @@ remove_tproxy_rules() {
 
   log_safe "🧹 正在删除 $ip_cmd 规则..."
 
-  if [ "$ip_cmd" = "ip6tables" ]; then
-    $ip_cmd -w 100 -D OUTPUT -p udp --dport 53 -j DROP
-    $ip_cmd -w 100 -D OUTPUT -p tcp --dport 853 -j DROP
-  fi
-
   $ip_cmd -w 100 -t mangle -D OUTPUT -j "$CHAIN_OUT" 2>/dev/null || true
 
   $ip_cmd -w 100 -t mangle -D PREROUTING -p tcp -m socket -j DIVERT 2>/dev/null || true
@@ -338,10 +331,10 @@ remove_tproxy_rules() {
 
   if [ -n "$TPROXY_USER" ]; then
     if [ "$ip_cmd" = "iptables" ]; then
-      $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
       $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT 2>/dev/null || true
     else
-      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
       $ip_cmd -w 100 -D OUTPUT -d ::1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT 2>/dev/null || true
     fi
   fi
