@@ -5,15 +5,13 @@
 # 安装后初始化环境，停止旧实例、迁移数据、设置权限
 # =====================================================================
 
-# 严格模式和错误处理
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 # 安装环境下 MODPATH 指向模块解压临时目录
 MODPATH=${MODPATH:-$(dirname "$0")}
 . "$MODPATH/common.sh"
 
-log_safe "❤️=== [customize] ===❤️"
+log_safe "❤️ === [customize] === ❤️"
 log_safe "📂 模块临时路径: $MODPATH"
 log_safe "📂 持久化数据路径: $PERSIST_DIR"
 
@@ -26,7 +24,7 @@ if [ -d "/data/adb/modules/$MODID" ]; then
   log_safe "🔄 升级中: 停止旧服务..."
   if [ -x "$SERVICE" ]; then
     log_safe "⏹️ 停止 $(basename "$SERVICE")..."
-    sh "$SERVICE" stop >/dev/null 2>&1 || log_safe "❗ 服务可能未完全停止"
+    $SERVICE stop >/dev/null 2>&1 || log_safe "❗ 服务可能未完全停止"
   fi
 
   # 使用 pkill 终止残留进程，更可靠

@@ -9,12 +9,11 @@
 # =====================================================================
 
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
-log_safe "❤️=== [service] ===❤️"
+log_safe "❤️ === [service] === ❤️"
 
 # --- 函数定义 ---
 

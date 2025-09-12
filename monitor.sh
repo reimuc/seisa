@@ -8,7 +8,6 @@
 # =====================================================================
 
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
@@ -20,7 +19,7 @@ RESTARTS_FILE="$PERSIST_DIR/.restart_timestamps"
 
 touch "$RESTARTS_FILE" 2>/dev/null || true
 
-log_safe "❤️=== [monitor] ===❤️"
+log_safe "❤️ === [monitor] === ❤️"
 log_safe "👁️ 启动监控守护..."
 
 [ -x "$SERVICE" ] || abort_safe "❌ 服务 $(basename "$SERVICE") 不可执行, 启动失败"

@@ -118,10 +118,10 @@ abort_safe() {
   msg="$*"; ts="[$(date +'%T')]"
 
   if [ "$IS_INSTALLER_ENV" = "1" ] && type abort >/dev/null 2>&1; then
-    abort "$ts: $msg"
+    abort "$ts $msg"
   else
-    echo "$ts: $msg" >&2
-    [ -n "$LOGFILE" ] && printf '%s: %s\n' "$ts" "$msg" >> "$LOGFILE"
+    echo "$ts $msg" >&2
+    [ -n "$LOGFILE" ] && printf '%s %s\n' "$ts" "$msg" >> "$LOGFILE"
     exit 1
   fi
 }

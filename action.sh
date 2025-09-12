@@ -6,12 +6,11 @@
 # =====================================================================
 
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
 
-log_safe "❤️=== [action] ===❤️"
+log_safe "❤️ === [action] === ❤️"
 log_safe "🎬 正在切换服务状态..."
 
 [ -x "$SERVICE" ] || abort_safe "❌ 服务 $(basename "$SERVICE") 不可执行, 操作中止"

@@ -6,7 +6,6 @@
 # =====================================================================
 
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 BIN_REPO="$1"       # GitHub 仓库名, 如 user/project
 RELEASE_TAG="$2"    # 版本标签, 如 v1.0.0 或 latest
@@ -19,7 +18,7 @@ RETRY_DELAY=${RETRY_DELAY:-5}
 TMPDIR=$(mktemp -d "${PERSIST_DIR}/.tmp")
 API_URL_BASE="https://api.github.com/repos/${BIN_REPO}/releases"
 
-log_safe "❤️=== [update-bin] ===❤️"
+log_safe "❤️ === [update-bin] === ❤️"
 log_safe "🚀 开始更新代理核心..."
 
 # 架构检测

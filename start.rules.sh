@@ -8,9 +8,7 @@
 # - 兼容多种内核与环境
 # =====================================================================
 
-# 严格模式和错误处理
 set -e
-trap '[ $? -ne 0 ] && abort_safe "⛔ 脚本执行失败: $?"' EXIT
 
 MODDIR=$(dirname "$0")
 . "$MODDIR/common.sh"
@@ -23,7 +21,7 @@ CHAIN_PRE=${CHAIN_PRE:-"${CHAIN_NAME}_PRE"}
 CHAIN_OUT=${CHAIN_OUT:-"${CHAIN_NAME}_OUT"}
 CHAIN_LAN=${CHAIN_LAN:-"${CHAIN_NAME}_LAN"}
 
-log_safe "❤️=== [start.rules] ===❤️"
+log_safe "❤️ === [start.rules] === ❤️"
 
 read -r USER_ID GROUP_ID <<EOF
   $(resolve_user_group "$TPROXY_USER")
@@ -83,7 +81,7 @@ unset_routes() {
 add_tproxy_rules() {
   ip_cmd=${1:-iptables}
 
-  log_safe "正在添加 $ip_cmd 规则..."
+  log_safe "⛓️‍💥 正在添加 $ip_cmd 规则..."
 
   log_safe "🔗 创建自定义 LAN 链..."
   $ip_cmd -w 100 -t mangle -N "$CHAIN_LAN"
@@ -399,10 +397,10 @@ do_start() {
 
 do_stop() {
   log_safe "🛑 正在清除防火墙规则..."
+  remove_tproxy_rules
   if [ "$IPV6_SUPPORT" = "1" ]; then
     remove_tproxy_rules ip6tables
   fi
-  remove_tproxy_rules
   unset_routes
   log_safe "✅ 防火墙规则已清除"
 }
