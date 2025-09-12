@@ -138,8 +138,8 @@ add_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -N "$CHAIN_OUT" 2>/dev/null || true
   $ip_cmd -w 100 -t mangle -F "$CHAIN_OUT" 2>/dev/null || true
 
-  if [ -n "$USER_ID" ]; then
-    log_safe "👤 放行 $USER_ID 服务本身流量..."
+  if [ -n "$TPROXY_USER" ]; then
+    log_safe "👤 放行 $TPROXY_USER 服务本身流量..."
     $ip_cmd -w 100 -t mangle -A "$CHAIN_OUT" -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -j RETURN
   fi
 
@@ -184,12 +184,12 @@ add_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -A DIVERT -j ACCEPT
   $ip_cmd -w 100 -t mangle -I PREROUTING -p tcp -m socket -j DIVERT
 
-  if [ -n "$USER_ID" ]; then
+  if [ -n "$TPROXY_USER" ]; then
     log_safe "👤 阻止本地服务访问 tproxy 端口..."
     if [ "$ip_cmd" = "iptables" ]; then
       $ip_cmd -w 100 -A OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
     else
-      $ip_cmd -w 100 -A OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m udp --dport "$TPROXY_PORT" -j REJECT
+      $ip_cmd -w 100 -A OUTPUT -d ::1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
     fi
   fi
 
@@ -352,7 +352,7 @@ remove_tproxy_rules() {
   $ip_cmd -w 100 -t mangle -F "$CHAIN_LAN" 2>/dev/null || true
   $ip_cmd -w 100 -t mangle -X "$CHAIN_LAN" 2>/dev/null || true
 
-  if [ -n "$USER_ID" ]; then
+  if [ -n "$TPROXY_USER" ]; then
     if [ "$ip_cmd" = "iptables" ]; then
       $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner "$USER_ID" --gid-owner "$GROUP_ID" -m tcp --dport "$TPROXY_PORT" -j REJECT
       $ip_cmd -w 100 -D OUTPUT -d 127.0.0.1 -p tcp -m owner --uid-owner 0 -m tcp --dport "$TPROXY_PORT" -j REJECT

@@ -203,7 +203,7 @@ resolve_user_group() {
 
   if [ -n "$group" ]; then
     case "$group" in
-      *[!0-9]*) gid=$(id -g "$user" 2>/dev/null) ;;
+      *[!0-9]*) gid=$(id -g "$group" 2>/dev/null) ;;
       *) gid=$group ;;
     esac
   fi
